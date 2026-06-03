@@ -54,6 +54,15 @@ type DbStudyPlan = {
   daily_repeats: number;
 };
 
+type UserActivity = {
+  completedMinutes: number;
+  completedLines: number;
+  completedRepeats: number;
+  weeklyLines: number;
+  averageAccuracy: number;
+  totalMinutes: number;
+};
+
 type DbVocabItem = {
   id: string;
   word: string;
@@ -124,6 +133,57 @@ function mapStudyPlan(row: DbStudyPlan): StudyPlan {
     completedMinutes: 0,
     completedLines: 0,
     completedRepeats: 0
+  };
+}
+
+function startOfTodayIso() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
+function sevenDaysAgoIso() {
+  const date = new Date();
+  date.setDate(date.getDate() - 7);
+  date.setHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
+async function getUserActivity(userId: string): Promise<UserActivity> {
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase) {
+    return {
+      completedMinutes: mockStudyPlan.completedMinutes,
+      completedLines: mockStudyPlan.completedLines,
+      completedRepeats: mockStudyPlan.completedRepeats,
+      weeklyLines: progressSummary.weeklyLines,
+      averageAccuracy: progressSummary.averageAccuracy,
+      totalMinutes: progressSummary.totalMinutes
+    };
+  }
+
+  const today = startOfTodayIso();
+  const weekStart = sevenDaysAgoIso();
+  const [todayProgress, weeklyProgress, attempts] = await Promise.all([
+    supabase.from("learning_progress").select("subtitle_line_id,mode,repeat_count,playback_position_ms").eq("user_id", userId).gte("last_studied_at", today),
+    supabase.from("learning_progress").select("subtitle_line_id,playback_position_ms").eq("user_id", userId).gte("last_studied_at", weekStart),
+    supabase.from("repeat_attempts").select("accuracy,overall").eq("user_id", userId)
+  ]);
+
+  const todayRows = todayProgress.data ?? [];
+  const weeklyRows = weeklyProgress.data ?? [];
+  const attemptRows = attempts.data ?? [];
+  const averageAccuracy =
+    attemptRows.length > 0 ? Math.round(attemptRows.reduce((sum, row) => sum + (row.accuracy ?? row.overall ?? 0), 0) / attemptRows.length) : progressSummary.averageAccuracy;
+
+  return {
+    completedMinutes: Math.max(Math.round(todayRows.reduce((sum, row) => sum + (row.playback_position_ms ?? 0), 0) / 60000), mockStudyPlan.completedMinutes),
+    completedLines: new Set(todayRows.map((row) => row.subtitle_line_id).filter(Boolean)).size || mockStudyPlan.completedLines,
+    completedRepeats: todayRows.filter((row) => row.mode === "repeat" || row.mode === "call_response").reduce((sum, row) => sum + (row.repeat_count ?? 1), 0) || mockStudyPlan.completedRepeats,
+    weeklyLines: new Set(weeklyRows.map((row) => row.subtitle_line_id).filter(Boolean)).size || progressSummary.weeklyLines,
+    averageAccuracy,
+    totalMinutes: Math.max(Math.round(weeklyRows.reduce((sum, row) => sum + (row.playback_position_ms ?? 0), 0) / 60000), progressSummary.totalMinutes)
   };
 }
 
@@ -258,7 +318,13 @@ export async function getStudyPlan(): Promise<StudyPlan> {
     return mockStudyPlan;
   }
 
-  return mapStudyPlan(data as DbStudyPlan);
+  const activity = await getUserActivity(user.id);
+  return {
+    ...mapStudyPlan(data as DbStudyPlan),
+    completedMinutes: activity.completedMinutes,
+    completedLines: activity.completedLines,
+    completedRepeats: activity.completedRepeats
+  };
 }
 
 export async function listVocabItems(status?: string | null, query = ""): Promise<VocabItem[]> {
@@ -330,7 +396,35 @@ export async function listAdminImportJobs(): Promise<AdminImportJob[]> {
 }
 
 export async function getProgressData() {
-  return { summary: progressSummary, rows: progressRows };
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase) {
+    return { summary: progressSummary, rows: progressRows };
+  }
+
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { summary: progressSummary, rows: progressRows };
+  }
+
+  const [plan, activity] = await Promise.all([getStudyPlan(), getUserActivity(user.id)]);
+  const summary = {
+    ...progressSummary,
+    weeklyLines: activity.weeklyLines,
+    averageAccuracy: activity.averageAccuracy,
+    totalMinutes: activity.totalMinutes
+  };
+  const rows = [
+    { id: "minutes", label: "今日分钟", value: plan.completedMinutes, target: plan.dailyMinutes, tone: "green" as const },
+    { id: "lines", label: "今日句子", value: plan.completedLines, target: plan.dailyLines, tone: "amber" as const },
+    { id: "repeats", label: "今日跟读", value: plan.completedRepeats, target: plan.dailyRepeats, tone: "ink" as const },
+    { id: "accuracy", label: "内容正确率", value: activity.averageAccuracy, target: 90, tone: "red" as const }
+  ];
+
+  return { summary, rows };
 }
 
 export function getMockSubtitleLine(id: string) {

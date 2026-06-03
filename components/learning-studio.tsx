@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { BookOpen, ChevronLeft, ChevronRight, Eye, EyeOff, Mic, Pause, Play, Repeat, RotateCcw, Volume2 } from "lucide-react";
 import type { Episode, LearningMode, RepeatAttempt, Series, SubtitleLine } from "@/lib/types";
-import { dictionary, mockAttempt } from "@/lib/mock-data";
+import { dictionary } from "@/lib/mock-data";
 import { cn, msToClock } from "@/lib/utils";
 
 const modes: { id: LearningMode; label: string }[] = [
@@ -46,15 +46,51 @@ export function LearningStudio({
     return current;
   }, [attempt, current, mode, previous]);
 
+  async function saveProgress(line: SubtitleLine, options: { completed?: boolean; repeatCount?: number; bestScore?: number } = {}) {
+    await fetch("/api/progress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        seriesId: parentSeries.id,
+        episodeId: episode.id,
+        subtitleLineId: line.id,
+        mode,
+        playbackPositionMs: line.endMs,
+        completed: options.completed ?? false,
+        repeatCount: options.repeatCount ?? 0,
+        bestScore: options.bestScore
+      })
+    }).catch(() => undefined);
+  }
+
   function move(delta: number) {
+    if (delta > 0) {
+      void saveProgress(current, { completed: true });
+    }
     setAttempt(null);
     setLookupWord(null);
     setLineIndex((value) => Math.min(Math.max(value + delta, 0), lines.length - 1));
   }
 
-  function submitRecording() {
+  async function submitRecording() {
     setIsRecording(false);
-    setAttempt(mockAttempt);
+    const response = await fetch("/api/attempts/score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode,
+        targetText: current.englishText,
+        episodeId: episode.id,
+        subtitleLineId: current.id
+      })
+    }).catch(() => null);
+    const payload = response ? ((await response.json().catch(() => null)) as { data?: RepeatAttempt } | null) : null;
+    const nextAttempt = payload?.data;
+
+    if (nextAttempt) {
+      setAttempt(nextAttempt);
+      void saveProgress(current, { completed: true, repeatCount: 1, bestScore: nextAttempt.overall });
+    }
   }
 
   return (
@@ -189,6 +225,7 @@ export function LearningStudio({
               <button
                 key={line.id}
                 onClick={() => {
+                  void saveProgress(current, { completed: true });
                   setLineIndex(index);
                   setAttempt(null);
                 }}
