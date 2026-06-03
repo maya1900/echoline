@@ -8,6 +8,22 @@ export function PlanWorkbench({ plan }: { plan: StudyPlan }) {
   const [minutes, setMinutes] = useState(plan.dailyMinutes);
   const [lines, setLines] = useState(plan.dailyLines);
   const [repeats, setRepeats] = useState(plan.dailyRepeats);
+  const [saveState, setSaveState] = useState("");
+
+  async function savePlan() {
+    setSaveState("保存中");
+    const response = await fetch("/api/study-plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dailyMinutes: minutes,
+        dailyLines: lines,
+        dailyRepeats: repeats
+      })
+    }).catch(() => null);
+
+    setSaveState(response?.ok ? "已保存" : "保存失败");
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
@@ -18,9 +34,9 @@ export function PlanWorkbench({ plan }: { plan: StudyPlan }) {
           <PlanSlider label="精听句子" value={lines} min={5} max={60} suffix="句" onChange={setLines} />
           <PlanSlider label="跟读次数" value={repeats} min={2} max={30} suffix="次" onChange={setRepeats} />
         </div>
-        <button className="mt-6 flex h-11 items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] px-4 text-sm font-semibold text-white">
+        <button onClick={savePlan} className="ink-action mt-6 flex h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold">
           <Save className="h-4 w-4" aria-hidden="true" />
-          保存计划
+          {saveState || "保存计划"}
         </button>
       </section>
 

@@ -48,6 +48,16 @@ a {
   font-family: Georgia, Charter, Times New Roman, serif;
 }
 
+.ink-action {
+  background: var(--ink);
+  color: #fff !important;
+}
+
+.ink-action svg {
+  color: currentColor;
+  stroke: currentColor;
+}
+
 .quiet-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgba(23, 20, 17, 0.28) transparent;

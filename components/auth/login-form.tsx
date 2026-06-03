@@ -68,7 +68,7 @@ export function LoginForm() {
             key={item}
             type="button"
             onClick={() => setMode(item)}
-            className={cn("h-9 rounded text-sm font-semibold text-[color:var(--muted)]", mode === item && "bg-[color:var(--ink)] text-white")}
+            className={cn("h-9 rounded text-sm font-semibold text-[color:var(--muted)]", mode === item && "ink-action")}
           >
             {item === "login" ? "登录" : "注册"}
           </button>
@@ -82,7 +82,7 @@ export function LoginForm() {
         密码
         <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required minLength={8} placeholder="至少 8 位" className="h-11 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]" />
       </label>
-      <button disabled={isSubmitting} className="mt-2 flex h-11 items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+      <button disabled={isSubmitting} className="ink-action mt-2 flex h-11 items-center justify-center gap-2 rounded-md text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60">
         {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Mail className="h-4 w-4" aria-hidden="true" />}
         {mode === "login" ? "登录" : "创建账号"}
       </button>

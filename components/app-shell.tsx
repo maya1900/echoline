@@ -27,7 +27,7 @@ export async function AppShell({
       <header className="sticky top-0 z-20 border-b border-[color:var(--line)] bg-[rgba(247,242,232,0.92)] backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <Link href="/" className="flex min-w-0 items-center gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[color:var(--ink)] text-white">
+            <span className="ink-action grid h-10 w-10 shrink-0 place-items-center rounded-md">
               <Clapperboard className="h-5 w-5" aria-hidden="true" />
             </span>
             <span className="min-w-0">
@@ -42,7 +42,7 @@ export async function AppShell({
                 href={item.href}
                 className={cn(
                   "flex h-10 items-center gap-2 rounded-md px-3 text-sm text-[color:var(--muted)] transition hover:bg-black/5 hover:text-[color:var(--ink)]",
-                  active === item.href && "bg-[color:var(--ink)] text-white hover:bg-[color:var(--ink)] hover:text-white"
+                  active === item.href && "ink-action hover:bg-[color:var(--ink)] hover:text-white"
                 )}
               >
                 <item.icon className="h-4 w-4" aria-hidden="true" />
@@ -73,7 +73,7 @@ export async function AppShell({
               href={item.href}
               className={cn(
                 "flex h-10 shrink-0 items-center gap-2 rounded-md px-3 text-sm text-[color:var(--muted)]",
-                active === item.href && "bg-[color:var(--ink)] text-white"
+                active === item.href && "ink-action"
               )}
             >
               <item.icon className="h-4 w-4" aria-hidden="true" />

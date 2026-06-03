@@ -54,7 +54,7 @@ export default async function ProgressPage() {
               </div>
             ))}
           </div>
-          <Link href={`/learn/${currentEpisode.id}`} className="mt-4 flex h-11 items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] text-sm font-semibold text-white">
+          <Link href={`/learn/${currentEpisode.id}`} className="ink-action mt-4 flex h-11 items-center justify-center gap-2 rounded-md text-sm font-semibold">
             继续精听
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>

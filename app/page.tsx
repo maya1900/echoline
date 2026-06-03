@@ -19,7 +19,7 @@ export default async function DashboardPage() {
         action={
           <Link
             href={`/learn/${currentEpisode.id}`}
-            className="hidden h-11 items-center gap-2 rounded-md bg-[color:var(--ink)] px-4 text-sm font-semibold text-white sm:flex"
+            className="ink-action hidden h-11 items-center gap-2 rounded-md px-4 text-sm font-semibold sm:flex"
           >
             <Play className="h-4 w-4" aria-hidden="true" />
             继续
@@ -56,7 +56,7 @@ export default async function DashboardPage() {
                   <div className="h-3 rounded-full bg-[color:var(--amber)]" style={{ width: `${currentEpisode.progress}%` }} />
                 </div>
                 <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <Link href={`/learn/${currentEpisode.id}`} className="flex h-12 items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] px-3 text-sm font-semibold text-white">
+                  <Link href={`/learn/${currentEpisode.id}`} className="ink-action flex h-12 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold">
                     <Play className="h-4 w-4" aria-hidden="true" />
                     继续学习
                   </Link>

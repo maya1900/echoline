@@ -13,18 +13,55 @@ const statusLabels = {
 };
 
 export function VocabWorkbench({ items }: { items: VocabItem[] }) {
+  const [localItems, setLocalItems] = useState(items);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<keyof typeof statusLabels>("all");
+  const [reviewingId, setReviewingId] = useState("");
 
   const filtered = useMemo(
     () =>
-      items.filter((item) => {
+      localItems.filter((item) => {
         const matchesStatus = status === "all" || item.status === status;
         const matchesQuery = `${item.word} ${item.translation} ${item.contextSentence}`.toLowerCase().includes(query.toLowerCase());
         return matchesStatus && matchesQuery;
       }),
-    [items, query, status]
+    [localItems, query, status]
   );
+
+  async function reviewItem(item: VocabItem) {
+    const nextReviewCount = item.reviewCount + 1;
+    const nextStatus = nextReviewCount >= 3 ? "mastered" : "learning";
+    const nextDue = new Date();
+    nextDue.setDate(nextDue.getDate() + (nextStatus === "mastered" ? 7 : 1));
+    setReviewingId(item.id);
+
+    const response = await fetch(`/api/vocab/${item.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: nextStatus,
+        reviewCount: nextReviewCount,
+        dueAt: nextDue.toISOString()
+      })
+    }).catch(() => null);
+
+    if (response?.ok) {
+      setLocalItems((current) =>
+        current.map((entry) =>
+          entry.id === item.id
+            ? {
+                ...entry,
+                status: nextStatus,
+                reviewCount: nextReviewCount,
+                dueAt: nextStatus === "mastered" ? "7 天后" : "明天"
+              }
+            : entry
+        )
+      );
+    }
+
+    setReviewingId("");
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
@@ -38,7 +75,7 @@ export function VocabWorkbench({ items }: { items: VocabItem[] }) {
             <button
               key={key}
               onClick={() => setStatus(key as keyof typeof statusLabels)}
-              className={cn("flex h-10 items-center justify-between rounded-md border border-[color:var(--line)] px-3 text-sm", status === key && "border-[color:var(--ink)] bg-[color:var(--ink)] text-white")}
+              className={cn("flex h-10 items-center justify-between rounded-md border border-[color:var(--line)] px-3 text-sm", status === key && "ink-action border-[color:var(--ink)]")}
             >
               {label}
               {status === key ? <Check className="h-4 w-4" aria-hidden="true" /> : null}
@@ -63,9 +100,9 @@ export function VocabWorkbench({ items }: { items: VocabItem[] }) {
               <span>复习 {item.reviewCount} 次</span>
               <span>到期：{item.dueAt}</span>
             </div>
-            <button className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] text-sm font-semibold text-white">
+            <button onClick={() => reviewItem(item)} className="ink-action mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-md text-sm font-semibold">
               <BookMarked className="h-4 w-4" aria-hidden="true" />
-              复习
+              {reviewingId === item.id ? "更新中" : "复习"}
             </button>
           </article>
         ))}

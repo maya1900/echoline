@@ -48,7 +48,7 @@ export function SeriesBrowser({ items }: { items: Series[] }) {
             <img src={item.coverUrl} alt={`${item.title} 封面`} className="h-56 w-full object-cover" />
             <div className="p-5">
               <div className="flex flex-wrap gap-2 text-xs font-semibold">
-                <span className="rounded bg-[color:var(--ink)] px-2 py-1 text-white">{item.difficulty}</span>
+                <span className="ink-action rounded px-2 py-1">{item.difficulty}</span>
                 <span className="rounded border border-[color:var(--line)] px-2 py-1 text-[color:var(--muted)]">{item.genre}</span>
               </div>
               <h2 className="mt-4 text-xl font-bold">{item.title}</h2>
@@ -64,7 +64,7 @@ export function SeriesBrowser({ items }: { items: Series[] }) {
                     <div className="h-2 rounded-full bg-[color:var(--amber)]" style={{ width: `${item.progress}%` }} />
                   </div>
                 </div>
-                <Link href={`/learn/${item.episodes[0].id}`} className="flex h-11 shrink-0 items-center gap-2 rounded-md bg-[color:var(--ink)] px-4 text-sm font-semibold text-white">
+                <Link href={`/learn/${item.episodes[0].id}`} className="ink-action flex h-11 shrink-0 items-center gap-2 rounded-md px-4 text-sm font-semibold">
                   <Play className="h-4 w-4" aria-hidden="true" />
                   学习
                 </Link>
