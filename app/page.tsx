@@ -19,7 +19,7 @@ export default async function DashboardPage() {
         action={
           <Link
             href={`/learn/${currentEpisode.id}`}
-            className="hidden h-11 items-center gap-2 rounded-md bg-[color:var(--ink)] px-4 text-sm font-semibold text-[color:var(--paper)] sm:flex"
+            className="hidden h-11 items-center gap-2 rounded-md bg-[color:var(--ink)] px-4 text-sm font-semibold text-white sm:flex"
           >
             <Play className="h-4 w-4" aria-hidden="true" />
             继续
@@ -32,7 +32,7 @@ export default async function DashboardPage() {
           <div className="grid min-h-[360px] md:grid-cols-[0.9fr_1.1fr]">
             <div className="relative min-h-64 bg-[color:var(--ink)]">
               <img src={currentSeries.coverUrl} alt={`${currentSeries.title} 封面`} className="h-full w-full object-cover opacity-90" />
-              <div className="absolute bottom-4 left-4 rounded-md bg-[rgba(23,20,17,0.86)] px-3 py-2 text-[color:var(--paper)]">
+              <div className="absolute bottom-4 left-4 rounded-md bg-[rgba(23,20,17,0.86)] px-3 py-2 text-white">
                 <p className="text-xs text-white/70">S{currentEpisode.seasonNumber}E{currentEpisode.episodeNumber}</p>
                 <p className="font-semibold">{currentEpisode.title}</p>
               </div>
@@ -56,7 +56,7 @@ export default async function DashboardPage() {
                   <div className="h-3 rounded-full bg-[color:var(--amber)]" style={{ width: `${currentEpisode.progress}%` }} />
                 </div>
                 <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <Link href={`/learn/${currentEpisode.id}`} className="flex h-12 items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] px-3 text-sm font-semibold text-[color:var(--paper)]">
+                  <Link href={`/learn/${currentEpisode.id}`} className="flex h-12 items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] px-3 text-sm font-semibold text-white">
                     <Play className="h-4 w-4" aria-hidden="true" />
                     继续学习
                   </Link>

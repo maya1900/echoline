@@ -38,7 +38,7 @@ export function VocabWorkbench({ items }: { items: VocabItem[] }) {
             <button
               key={key}
               onClick={() => setStatus(key as keyof typeof statusLabels)}
-              className={cn("flex h-10 items-center justify-between rounded-md border border-[color:var(--line)] px-3 text-sm", status === key && "border-[color:var(--ink)] bg-[color:var(--ink)] text-[color:var(--paper)]")}
+              className={cn("flex h-10 items-center justify-between rounded-md border border-[color:var(--line)] px-3 text-sm", status === key && "border-[color:var(--ink)] bg-[color:var(--ink)] text-white")}
             >
               {label}
               {status === key ? <Check className="h-4 w-4" aria-hidden="true" /> : null}
@@ -63,7 +63,7 @@ export function VocabWorkbench({ items }: { items: VocabItem[] }) {
               <span>复习 {item.reviewCount} 次</span>
               <span>到期：{item.dueAt}</span>
             </div>
-            <button className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] text-sm font-semibold text-[color:var(--paper)]">
+            <button className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] text-sm font-semibold text-white">
               <BookMarked className="h-4 w-4" aria-hidden="true" />
               复习
             </button>

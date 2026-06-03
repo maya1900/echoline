@@ -18,7 +18,7 @@ export function PlanWorkbench({ plan }: { plan: StudyPlan }) {
           <PlanSlider label="精听句子" value={lines} min={5} max={60} suffix="句" onChange={setLines} />
           <PlanSlider label="跟读次数" value={repeats} min={2} max={30} suffix="次" onChange={setRepeats} />
         </div>
-        <button className="mt-6 flex h-11 items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] px-4 text-sm font-semibold text-[color:var(--paper)]">
+        <button className="mt-6 flex h-11 items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] px-4 text-sm font-semibold text-white">
           <Save className="h-4 w-4" aria-hidden="true" />
           保存计划
         </button>

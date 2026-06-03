@@ -97,7 +97,7 @@ export function LearningStudio({
     <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
       <section className="space-y-4">
         <div className="overflow-hidden rounded-md border border-[color:var(--ink)] bg-[color:var(--panel)]">
-          <div className="relative min-h-[300px] bg-[color:var(--ink)] text-[color:var(--paper)]">
+          <div className="relative min-h-[300px] bg-[color:var(--ink)] text-white">
             <img src={parentSeries.coverUrl} alt={parentSeries.title} className="absolute inset-0 h-full w-full object-cover opacity-30" />
             <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(23,20,17,0.1),rgba(23,20,17,0.86))]" />
             <div className="relative flex min-h-[300px] flex-col justify-between p-5 sm:p-6">
@@ -149,7 +149,7 @@ export function LearningStudio({
                   }}
                   className={cn(
                     "h-10 shrink-0 rounded-md border border-[color:var(--line)] px-3 text-sm font-semibold",
-                    mode === item.id && "border-[color:var(--ink)] bg-[color:var(--ink)] text-[color:var(--paper)]"
+                    mode === item.id && "border-[color:var(--ink)] bg-[color:var(--ink)] text-white"
                   )}
                 >
                   {item.label}
@@ -251,7 +251,7 @@ export function LearningStudio({
               <p className="text-xl font-bold">{lookupWord}</p>
               <p className="mt-1 text-sm text-[color:var(--muted)]">{lookup?.phonetic ?? "暂无音标"}</p>
               <p className="mt-3 text-sm leading-6">{lookup?.translation ?? "本地词典未命中，可收藏后稍后补充语境解释。"}</p>
-              <button className="mt-3 h-10 w-full rounded-md bg-[color:var(--ink)] text-sm font-semibold text-[color:var(--paper)]">收藏到生词本</button>
+              <button className="mt-3 h-10 w-full rounded-md bg-[color:var(--ink)] text-sm font-semibold text-white">收藏到生词本</button>
             </div>
           ) : (
             <p className="mt-3 text-sm leading-6 text-[color:var(--muted)]">点击英文字幕里的单词查看释义。</p>

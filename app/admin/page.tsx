@@ -24,7 +24,7 @@ export default async function AdminPage() {
             <h2 className="text-xl font-bold">导入入口</h2>
           </div>
           <div className="grid gap-3">
-            <button className="flex h-11 items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] px-4 text-sm font-semibold text-[color:var(--paper)]">
+            <button className="flex h-11 items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] px-4 text-sm font-semibold text-white">
               <Plus className="h-4 w-4" aria-hidden="true" />
               新建剧集
             </button>
