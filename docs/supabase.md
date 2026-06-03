@@ -16,11 +16,34 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 
 - 已新增 App Router 可用的 Supabase server client。
 - 页面与 GET API 会优先读取 Supabase；未配置环境变量或查询失败时回退到类型化 mock 数据。
+- Supabase Auth 已接入邮箱登录/注册、callback、logout，并在登录后初始化 `profiles` 与 `study_plans`。
 - `study-plan`、`vocab`、`attempts/score` 和管理员接口已尝试写真实表，失败时保留 mock 响应。
+- `POST /api/admin/import-subtitles` 已支持 SRT/VTT 解析并写入 `subtitle_lines`。
+- `GET /api/episodes/:id/media-url` 已支持 Supabase Storage 私有文件签名 URL。
 - 评分仍是 V1 mock：只返回转写、准确度、完整度、漏词、总分和中文短反馈，`fluency` 不写分数。
+
+## 字幕导入
+
+JSON 请求：
+
+```bash
+curl -X POST http://localhost:3000/api/admin/import-subtitles \
+  -H "Content-Type: application/json" \
+  -d '{"episodeId":"00000000-0000-4000-8000-000000000101","sourceFilename":"episode.srt","subtitleText":"1\n00:00:01,000 --> 00:00:03,000\nHello.\n你好。"}'
+```
+
+也可以用 `multipart/form-data` 上传 `file`，并同时传 `episodeId`。
+
+## 私有媒体
+
+`episodes.media_url` 支持三种形式：
+
+- `https://...`：直接返回。
+- `/mock/...`：本地 mock 原样返回。
+- `bucket/path/to/video.mp4`：从 Supabase Storage 生成 15 分钟签名 URL。
 
 ## 下一步
 
-- 接入 Supabase Auth 登录注册。
-- 登录后用真实用户初始化 `profiles`、`study_plans` 和个人 `vocab_items`。
-- 用私有 Storage bucket 的签名 URL 替换 `episodes.media_url`。
+- 管理页接入真实创建/上传表单。
+- 接入真实 AI Provider 转写与文本评分。
+- 增加端到端冒烟检查。

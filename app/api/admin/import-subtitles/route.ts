@@ -1,8 +1,25 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { parseSubtitleText } from "@/lib/subtitles/parser";
+
+type SubtitleImportInput = {
+  episodeId?: string;
+  sourceFilename: string;
+  subtitleText: string;
+};
 
 export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({}));
+  const input = await readSubtitleImportInput(request);
+  const lines = parseSubtitleText(input.subtitleText);
+
+  if (!input.episodeId) {
+    return NextResponse.json({ error: "Missing episodeId" }, { status: 400 });
+  }
+
+  if (lines.length === 0) {
+    return NextResponse.json({ error: "No subtitle cues parsed" }, { status: 400 });
+  }
+
   const supabase = await createSupabaseServerClient();
 
   if (supabase) {
@@ -10,20 +27,47 @@ export async function POST(request: Request) {
       data: { user }
     } = await supabase.auth.getUser();
 
-    const { data, error } = await supabase
+    const { data: job, error: jobError } = await supabase
       .from("admin_import_jobs")
       .insert({
         admin_id: user?.id,
-        episode_id: body.episodeId,
-        source_filename: body.sourceFilename ?? body.title ?? "subtitles.srt",
-        status: "pending",
+        episode_id: input.episodeId,
+        source_filename: input.sourceFilename,
+        status: "processing",
         parsed_lines: 0
       })
-      .select("id,source_filename,status,parsed_lines,error_message,created_at")
+      .select("id")
       .single();
 
-    if (!error && data) {
-      return NextResponse.json({ data }, { status: 202 });
+    if (!jobError && job) {
+      const rows = lines.map((line) => ({
+        episode_id: input.episodeId,
+        line_index: line.lineIndex,
+        start_ms: line.startMs,
+        end_ms: line.endMs,
+        english_text: line.englishText,
+        chinese_text: line.chineseText,
+        keywords: line.keywords
+      }));
+      const { error: lineError } = await supabase.from("subtitle_lines").upsert(rows, { onConflict: "episode_id,line_index" });
+      const status = lineError ? "failed" : "completed";
+
+      const { data: updatedJob } = await supabase
+        .from("admin_import_jobs")
+        .update({
+          status,
+          parsed_lines: lineError ? 0 : lines.length,
+          error_message: lineError?.message
+        })
+        .eq("id", job.id)
+        .select("id,source_filename,status,parsed_lines,error_message,created_at")
+        .single();
+
+      if (!lineError) {
+        return NextResponse.json({ data: { job: updatedJob, lines } }, { status: 201 });
+      }
+
+      return NextResponse.json({ error: lineError.message, data: { job: updatedJob } }, { status: 500 });
     }
   }
 
@@ -31,11 +75,36 @@ export async function POST(request: Request) {
     {
       data: {
         id: `job-${Date.now()}`,
-        status: "queued",
-        title: body.title ?? "字幕导入任务",
-        result: "已接收，等待解析。"
+        status: "completed",
+        title: input.sourceFilename,
+        result: `解析 ${lines.length} 行字幕。`,
+        lines
       }
     },
-    { status: 202 }
+    { status: 201 }
   );
+}
+
+async function readSubtitleImportInput(request: Request): Promise<SubtitleImportInput> {
+  const contentType = request.headers.get("content-type") ?? "";
+
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await request.formData();
+    const file = formData.get("file");
+    const subtitleText = file instanceof File ? await file.text() : String(formData.get("subtitleText") ?? "");
+
+    return {
+      episodeId: String(formData.get("episodeId") ?? ""),
+      sourceFilename: file instanceof File ? file.name : String(formData.get("sourceFilename") ?? "subtitles.srt"),
+      subtitleText
+    };
+  }
+
+  const body = await request.json().catch(() => ({}));
+
+  return {
+    episodeId: body.episodeId,
+    sourceFilename: body.sourceFilename ?? body.title ?? "subtitles.srt",
+    subtitleText: body.subtitleText ?? body.content ?? ""
+  };
 }
