@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { BookOpen, CalendarClock, ChartNoAxesCombined, Clapperboard, Library, Settings, ShieldCheck } from "lucide-react";
+import { BookOpen, CalendarClock, ChartNoAxesCombined, Clapperboard, Library, LogOut, Settings, ShieldCheck } from "lucide-react";
+import { getCurrentUser } from "@/lib/auth/bootstrap";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -12,13 +13,15 @@ const navItems = [
   { href: "/admin", label: "导入", icon: ShieldCheck }
 ];
 
-export function AppShell({
+export async function AppShell({
   children,
   active
 }: {
   children: React.ReactNode;
   active: string;
 }) {
+  const user = await getCurrentUser();
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-[color:var(--line)] bg-[rgba(247,242,232,0.92)] backdrop-blur">
@@ -47,12 +50,21 @@ export function AppShell({
               </Link>
             ))}
           </nav>
-          <Link
-            href="/login"
-            className="h-10 rounded-md border border-[color:var(--ink)] px-4 py-2 text-sm font-semibold transition hover:bg-[color:var(--ink)] hover:text-[color:var(--paper)]"
-          >
-            登录
-          </Link>
+          {user ? (
+            <form action="/auth/logout" method="post" className="flex min-w-0 items-center gap-2">
+              <span className="hidden max-w-48 truncate text-sm text-[color:var(--muted)] sm:block">{user.email}</span>
+              <button className="grid h-10 w-10 place-items-center rounded-md border border-[color:var(--ink)] transition hover:bg-[color:var(--ink)] hover:text-[color:var(--paper)]" aria-label="退出登录">
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </form>
+          ) : (
+            <Link
+              href="/login"
+              className="h-10 rounded-md border border-[color:var(--ink)] px-4 py-2 text-sm font-semibold transition hover:bg-[color:var(--ink)] hover:text-[color:var(--paper)]"
+            >
+              登录
+            </Link>
+          )}
         </div>
         <nav className="flex gap-1 overflow-x-auto border-t border-[color:var(--line)] px-3 py-2 lg:hidden">
           {navItems.map((item) => (

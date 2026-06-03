@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ArrowRight, KeyRound, Mail } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import { LoginForm } from "@/components/auth/login-form";
 
 export default function LoginPage() {
   return (
@@ -10,24 +11,7 @@ export default function LoginPage() {
           返回工作台
         </Link>
         <h1 className="text-2xl font-bold">登录 Your English Coach</h1>
-        <form className="mt-6 grid gap-3">
-          <label className="grid gap-2 text-sm font-semibold">
-            邮箱
-            <input type="email" placeholder="you@example.com" className="h-11 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]" />
-          </label>
-          <label className="grid gap-2 text-sm font-semibold">
-            密码
-            <input type="password" placeholder="至少 8 位" className="h-11 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]" />
-          </label>
-          <button className="mt-2 flex h-11 items-center justify-center gap-2 rounded-md bg-[color:var(--ink)] text-sm font-semibold text-[color:var(--paper)]">
-            <Mail className="h-4 w-4" aria-hidden="true" />
-            登录 / 注册
-          </button>
-          <button type="button" className="flex h-11 items-center justify-center gap-2 rounded-md border border-[color:var(--line)] text-sm font-semibold">
-            <KeyRound className="h-4 w-4" aria-hidden="true" />
-            OAuth 预留
-          </button>
-        </form>
+        <LoginForm />
       </section>
     </main>
   );
