@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { FileUp, Film, Plus, Save, ShieldCheck } from "lucide-react";
-import type { AdminImportJob, Episode, Series } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import { FileUp, Film, ListChecks, Plus, Save, ShieldCheck } from "lucide-react";
+import type { AdminImportJob, Episode, Series, SubtitleLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type SeriesResponse = {
@@ -76,7 +76,7 @@ export function AdminWorkbench({
 }) {
   const [series, setSeries] = useState(initialSeries);
   const [jobs, setJobs] = useState(initialJobs);
-  const [activePanel, setActivePanel] = useState<"series" | "episode" | "subtitles">("series");
+  const [activePanel, setActivePanel] = useState<"series" | "episode" | "subtitles" | "editor">("series");
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -104,8 +104,25 @@ export function AdminWorkbench({
     sourceFilename: "episode.srt",
     subtitleText: defaultSubtitleText
   });
+  const [editorEpisodeId, setEditorEpisodeId] = useState(initialSeries[0]?.episodes[0]?.id ?? "");
+  const [subtitleLines, setSubtitleLines] = useState<SubtitleLine[]>([]);
+  const [selectedLineId, setSelectedLineId] = useState("");
+  const [lineForm, setLineForm] = useState({
+    englishText: "",
+    chineseText: "",
+    startMs: 0,
+    endMs: 0,
+    difficulty: "B1",
+    keywords: ""
+  });
 
   const episodes = useMemo(() => series.flatMap((item) => item.episodes.map((episode) => ({ ...episode, seriesTitle: item.title }))), [series]);
+
+  useEffect(() => {
+    if (activePanel === "editor" && editorEpisodeId) {
+      void loadSubtitleLines(editorEpisodeId);
+    }
+  }, [activePanel, editorEpisodeId]);
 
   function updateEpisodeSeries(seriesId: string) {
     const targetSeries = series.find((item) => item.id === seriesId);
@@ -200,6 +217,86 @@ export function AdminWorkbench({
     }
   }
 
+  async function loadSubtitleLines(episodeId: string) {
+    setMessage("读取字幕中");
+    const response = await fetch(`/api/episodes/${episodeId}/subtitles`).catch(() => null);
+    const payload = response ? ((await response.json().catch(() => null)) as { data?: SubtitleLine[] } | null) : null;
+    const lines = payload?.data ?? [];
+    setSubtitleLines(lines);
+
+    if (lines[0]) {
+      selectSubtitleLine(lines[0]);
+      setMessage(`已读取 ${lines.length} 行字幕`);
+    } else {
+      setSelectedLineId("");
+      setMessage("当前集数还没有字幕");
+    }
+  }
+
+  function selectSubtitleLine(line: SubtitleLine) {
+    setSelectedLineId(line.id);
+    setLineForm({
+      englishText: line.englishText,
+      chineseText: line.chineseText,
+      startMs: line.startMs,
+      endMs: line.endMs,
+      difficulty: line.difficulty || "B1",
+      keywords: line.keywords.join(", ")
+    });
+  }
+
+  async function saveSubtitleLine(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedLineId) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setMessage("保存字幕中");
+    const response = await fetch(`/api/admin/subtitle-lines/${selectedLineId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        englishText: lineForm.englishText,
+        chineseText: lineForm.chineseText,
+        startMs: lineForm.startMs,
+        endMs: lineForm.endMs,
+        difficulty: lineForm.difficulty,
+        keywords: lineForm.keywords
+          .split(",")
+          .map((word) => word.trim())
+          .filter(Boolean)
+      })
+    }).catch(() => null);
+
+    if (response?.ok) {
+      setSubtitleLines((current) =>
+        current.map((line) =>
+          line.id === selectedLineId
+            ? {
+                ...line,
+                englishText: lineForm.englishText,
+                chineseText: lineForm.chineseText,
+                startMs: lineForm.startMs,
+                endMs: lineForm.endMs,
+                difficulty: lineForm.difficulty,
+                keywords: lineForm.keywords
+                  .split(",")
+                  .map((word) => word.trim())
+                  .filter(Boolean)
+              }
+            : line
+        )
+      );
+      setMessage("字幕已保存");
+    } else {
+      setMessage("字幕保存失败");
+    }
+
+    setIsSubmitting(false);
+  }
+
   return (
     <section className="grid gap-4 lg:grid-cols-[380px_1fr]">
       <aside className="space-y-4">
@@ -208,10 +305,11 @@ export function AdminWorkbench({
             <ShieldCheck className="h-5 w-5 text-[color:var(--green)]" aria-hidden="true" />
             <h2 className="text-xl font-bold">导入入口</h2>
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             <PanelButton active={activePanel === "series"} onClick={() => setActivePanel("series")} icon={Plus} label="剧集" />
             <PanelButton active={activePanel === "episode"} onClick={() => setActivePanel("episode")} icon={Film} label="集数" />
             <PanelButton active={activePanel === "subtitles"} onClick={() => setActivePanel("subtitles")} icon={FileUp} label="字幕" />
+            <PanelButton active={activePanel === "editor"} onClick={() => setActivePanel("editor")} icon={ListChecks} label="编辑" />
           </div>
           {message ? <p className="mt-3 rounded-md border border-[color:var(--line)] bg-white/60 p-3 text-sm text-[color:var(--muted)]">{message}</p> : null}
         </div>
@@ -281,6 +379,47 @@ export function AdminWorkbench({
               <TextArea label="SRT / VTT" value={subtitleForm.subtitleText} rows={10} required onChange={(value) => setSubtitleForm((current) => ({ ...current, subtitleText: value }))} />
             </div>
             <SubmitButton disabled={isSubmitting || !subtitleForm.episodeId} label="导入字幕" />
+          </form>
+        ) : null}
+
+        {activePanel === "editor" ? (
+          <form onSubmit={saveSubtitleLine} className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
+            <h3 className="font-bold">编辑字幕</h3>
+            <div className="mt-4 grid gap-3">
+              <SelectField label="目标集数" value={editorEpisodeId} onChange={setEditorEpisodeId}>
+                {episodes.map((episode) => (
+                  <option key={episode.id} value={episode.id}>
+                    {episode.seriesTitle} S{episode.seasonNumber}E{episode.episodeNumber} · {episode.title}
+                  </option>
+                ))}
+              </SelectField>
+
+              <div className="quiet-scrollbar max-h-56 space-y-2 overflow-y-auto rounded-md border border-[color:var(--line)] bg-white/50 p-2">
+                {subtitleLines.map((line) => (
+                  <button
+                    key={line.id}
+                    type="button"
+                    onClick={() => selectSubtitleLine(line)}
+                    className={cn("w-full rounded border border-[color:var(--line)] p-2 text-left text-sm", selectedLineId === line.id && "border-[color:var(--ink)] bg-white")}
+                  >
+                    <span className="mb-1 block text-xs text-[color:var(--muted)]">第 {line.lineIndex} 句 · {line.startMs}ms</span>
+                    <span className="line-clamp-1 font-semibold">{line.englishText}</span>
+                  </button>
+                ))}
+              </div>
+
+              <TextArea label="英文" value={lineForm.englishText} rows={3} required onChange={(value) => setLineForm((current) => ({ ...current, englishText: value }))} />
+              <TextArea label="中文" value={lineForm.chineseText} rows={2} onChange={(value) => setLineForm((current) => ({ ...current, chineseText: value }))} />
+              <div className="grid grid-cols-2 gap-3">
+                <NumberField label="开始 ms" value={lineForm.startMs} min={0} onChange={(value) => setLineForm((current) => ({ ...current, startMs: value }))} />
+                <NumberField label="结束 ms" value={lineForm.endMs} min={1} onChange={(value) => setLineForm((current) => ({ ...current, endMs: value }))} />
+              </div>
+              <div className="grid grid-cols-[96px_1fr] gap-3">
+                <TextField label="难度" value={lineForm.difficulty} required onChange={(value) => setLineForm((current) => ({ ...current, difficulty: value }))} />
+                <TextField label="关键词" value={lineForm.keywords} onChange={(value) => setLineForm((current) => ({ ...current, keywords: value }))} />
+              </div>
+            </div>
+            <SubmitButton disabled={isSubmitting || !selectedLineId} label="保存字幕" />
           </form>
         ) : null}
       </aside>
