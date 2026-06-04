@@ -76,6 +76,9 @@ const statusText = {
 };
 
 const defaultCoverUrl = "https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=1200&q=80";
+const difficultyOptions = ["A1", "A2", "B1", "B2", "C1", "C2"];
+const genreOptions = ["生活 / 情景", "校园", "职场", "家庭", "旅行", "喜剧", "纪录片"];
+const dictionaryProviderOptions = ["bigmodel", "siliconflow"];
 
 export function AdminWorkbench({
   initialSeries,
@@ -97,6 +100,7 @@ export function AdminWorkbench({
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [savingUserId, setSavingUserId] = useState("");
+  const [dictionaryApiKeyInput, setDictionaryApiKeyInput] = useState("");
 
   const [seriesForm, setSeriesForm] = useState({
     title: "",
@@ -352,12 +356,16 @@ export function AdminWorkbench({
     const response = await fetch("/api/admin/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settings)
+      body: JSON.stringify({
+        ...settings,
+        dictionaryApiKey: dictionaryApiKeyInput
+      })
     }).catch(() => null);
     const payload = response ? ((await response.json().catch(() => null)) as { data?: SiteSettings; error?: string } | null) : null;
 
     if (response?.ok && payload?.data) {
       setSettings(payload.data);
+      setDictionaryApiKeyInput("");
       setMessage("网站设置已保存");
     } else {
       setMessage(payload?.error ?? "网站设置保存失败");
@@ -420,9 +428,9 @@ export function AdminWorkbench({
               <h3 className="font-bold">新建剧集</h3>
               <div className="mt-4 grid gap-3">
                 <TextField label="剧名" value={seriesForm.title} required onChange={(value) => setSeriesForm((current) => ({ ...current, title: value }))} />
-                <div className="grid grid-cols-2 gap-3">
-                  <TextField label="难度" value={seriesForm.difficulty} required onChange={(value) => setSeriesForm((current) => ({ ...current, difficulty: value }))} />
-                  <TextField label="题材" value={seriesForm.genre} required onChange={(value) => setSeriesForm((current) => ({ ...current, genre: value }))} />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ComboField label="难度" value={seriesForm.difficulty} options={difficultyOptions} required onChange={(value) => setSeriesForm((current) => ({ ...current, difficulty: value }))} />
+                  <ComboField label="题材" value={seriesForm.genre} options={genreOptions} required onChange={(value) => setSeriesForm((current) => ({ ...current, genre: value }))} />
                 </div>
                 <AdvancedFields>
                   <TextField label="英文名" value={seriesForm.originalTitle} onChange={(value) => setSeriesForm((current) => ({ ...current, originalTitle: value }))} />
@@ -721,7 +729,7 @@ export function AdminWorkbench({
               <SlidersHorizontal className="h-5 w-5 text-[color:var(--amber)]" aria-hidden="true" />
               <h3 className="font-bold">默认学习计划</h3>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 min-[1360px]:grid-cols-3">
               <NumberField label="分钟" value={settings.defaultDailyMinutes} min={1} onChange={(value) => setSettings((current) => ({ ...current, defaultDailyMinutes: value }))} />
               <NumberField label="句子" value={settings.defaultDailyLines} min={1} onChange={(value) => setSettings((current) => ({ ...current, defaultDailyLines: value }))} />
               <NumberField label="跟读" value={settings.defaultDailyRepeats} min={1} onChange={(value) => setSettings((current) => ({ ...current, defaultDailyRepeats: value }))} />
@@ -736,8 +744,14 @@ export function AdminWorkbench({
             <div className="grid gap-3 md:grid-cols-2">
               <ToggleField label="启用跟读评分" checked={settings.aiScoringEnabled} onChange={(value) => setSettings((current) => ({ ...current, aiScoringEnabled: value }))} />
               <ToggleField label="启用 AI 中文释义" checked={settings.dictionaryAiEnabled} onChange={(value) => setSettings((current) => ({ ...current, dictionaryAiEnabled: value }))} />
-              <TextField label="字典 Provider" value={settings.dictionaryProvider} required onChange={(value) => setSettings((current) => ({ ...current, dictionaryProvider: value }))} />
+              <ComboField label="字典 Provider" value={settings.dictionaryProvider} options={dictionaryProviderOptions} required onChange={(value) => setSettings((current) => ({ ...current, dictionaryProvider: value }))} />
               <TextField label="字典模型" value={settings.dictionaryModel} required onChange={(value) => setSettings((current) => ({ ...current, dictionaryModel: value }))} />
+              <SecretField
+                label="查词 API Key"
+                value={dictionaryApiKeyInput}
+                configured={settings.dictionaryApiKeyConfigured}
+                onChange={setDictionaryApiKeyInput}
+              />
             </div>
           </section>
         </div>
@@ -952,9 +966,73 @@ function TextField({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="grid gap-2 text-sm font-semibold">
+    <label className="grid min-w-0 gap-2 text-sm font-semibold">
       {label}
-      <input value={value} required={required} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]" />
+      <input value={value} required={required} onChange={(event) => onChange(event.target.value)} className="h-10 w-full min-w-0 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]" />
+    </label>
+  );
+}
+
+function ComboField({
+  label,
+  value,
+  options,
+  required,
+  onChange
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  required?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const listId = `${label.replace(/\s+/g, "-")}-options`;
+
+  return (
+    <label className="grid min-w-0 gap-2 text-sm font-semibold">
+      {label}
+      <input
+        list={listId}
+        value={value}
+        required={required}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-10 w-full min-w-0 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]"
+      />
+      <datalist id={listId}>
+        {options.map((option) => (
+          <option key={option} value={option} />
+        ))}
+      </datalist>
+    </label>
+  );
+}
+
+function SecretField({
+  label,
+  value,
+  configured,
+  onChange
+}: {
+  label: string;
+  value: string;
+  configured: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid min-w-0 gap-2 text-sm font-semibold md:col-span-2">
+      <span className="flex flex-wrap items-center gap-2">
+        {label}
+        <span className="rounded border border-[color:var(--line)] px-2 py-0.5 text-xs font-semibold text-[color:var(--muted)]">
+          {configured ? "已配置" : "未配置"}
+        </span>
+      </span>
+      <input
+        type="password"
+        value={value}
+        placeholder={configured ? "填写新 key 后保存会覆盖当前配置" : "填写 DICTIONARY_AI_API_KEY"}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-10 w-full min-w-0 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]"
+      />
     </label>
   );
 }
@@ -971,9 +1049,9 @@ function NumberField({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="grid gap-2 text-sm font-semibold">
+    <label className="grid min-w-0 gap-2 text-sm font-semibold">
       {label}
-      <input type="number" min={min} value={value} onChange={(event) => onChange(Number(event.target.value))} className="h-10 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]" />
+      <input type="number" min={min} value={value} onChange={(event) => onChange(Number(event.target.value))} className="h-10 w-full min-w-0 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]" />
     </label>
   );
 }
@@ -990,9 +1068,9 @@ function SelectField({
   children: React.ReactNode;
 }) {
   return (
-    <label className="grid gap-2 text-sm font-semibold">
+    <label className="grid min-w-0 gap-2 text-sm font-semibold">
       {label}
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]">
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full min-w-0 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]">
         {children}
       </select>
     </label>
@@ -1013,14 +1091,14 @@ function TextArea({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="grid gap-2 text-sm font-semibold">
+    <label className="grid min-w-0 gap-2 text-sm font-semibold">
       {label}
       <textarea
         value={value}
         rows={rows}
         required={required}
         onChange={(event) => onChange(event.target.value)}
-        className="resize-y rounded-md border border-[color:var(--line)] bg-white/70 px-3 py-2 text-sm leading-6 outline-none focus:border-[color:var(--ink)]"
+        className="w-full min-w-0 resize-y rounded-md border border-[color:var(--line)] bg-white/70 px-3 py-2 text-sm leading-6 outline-none focus:border-[color:var(--ink)]"
       />
     </label>
   );

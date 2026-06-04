@@ -118,5 +118,6 @@ export type SiteSettings = {
   dictionaryAiEnabled: boolean;
   dictionaryProvider: string;
   dictionaryModel: string;
+  dictionaryApiKeyConfigured: boolean;
   allowPublicSignup: boolean;
 };

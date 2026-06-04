@@ -29,13 +29,30 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Supabase service role is not configured" }, { status: 503 });
   }
 
-  const settings = normalizeSiteSettings({ ...defaultSiteSettings, ...body });
+  const { data: currentRow } = await supabaseAdmin.from("site_settings").select("value").eq("key", "global").maybeSingle();
+  const currentValue = (currentRow?.value as Record<string, unknown> | null) ?? {};
+  const nextValue: Record<string, unknown> = { ...defaultSiteSettings, ...currentValue, ...body };
+  const nextApiKey = typeof body.dictionaryApiKey === "string" ? body.dictionaryApiKey.trim() : "";
+
+  if (nextApiKey) {
+    nextValue.dictionaryApiKey = nextApiKey;
+    nextValue.dictionaryApiKeyConfigured = true;
+  } else if (typeof currentValue.dictionaryApiKey === "string" && currentValue.dictionaryApiKey.trim()) {
+    nextValue.dictionaryApiKey = currentValue.dictionaryApiKey;
+    nextValue.dictionaryApiKeyConfigured = true;
+  } else {
+    delete nextValue.dictionaryApiKey;
+    nextValue.dictionaryApiKeyConfigured = false;
+  }
+
+  const settings = normalizeSiteSettings(nextValue);
+  const storedSettings = { ...settings, dictionaryApiKey: nextValue.dictionaryApiKey };
   const { data, error } = await supabaseAdmin
     .from("site_settings")
     .upsert(
       {
         key: "global",
-        value: settings,
+        value: storedSettings,
         updated_by: admin.user.id,
         updated_at: new Date().toISOString()
       },

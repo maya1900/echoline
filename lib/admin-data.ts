@@ -23,6 +23,7 @@ export const defaultSiteSettings: SiteSettings = {
   dictionaryAiEnabled: true,
   dictionaryProvider: "bigmodel",
   dictionaryModel: "glm-4-flash",
+  dictionaryApiKeyConfigured: Boolean(process.env.DICTIONARY_AI_API_KEY),
   allowPublicSignup: true
 };
 
@@ -76,6 +77,11 @@ export async function getSiteSettings(): Promise<SiteSettings> {
 }
 
 export function normalizeSiteSettings(value: Record<string, unknown>): SiteSettings {
+  const dictionaryApiKeyConfigured = readBoolean(
+    value.dictionaryApiKeyConfigured,
+    typeof value.dictionaryApiKey === "string" && value.dictionaryApiKey.trim().length > 0
+  );
+
   return {
     appName: readString(value.appName, defaultSiteSettings.appName),
     workspaceSubtitle: readString(value.workspaceSubtitle, defaultSiteSettings.workspaceSubtitle),
@@ -86,7 +92,29 @@ export function normalizeSiteSettings(value: Record<string, unknown>): SiteSetti
     dictionaryAiEnabled: readBoolean(value.dictionaryAiEnabled, defaultSiteSettings.dictionaryAiEnabled),
     dictionaryProvider: readString(value.dictionaryProvider, defaultSiteSettings.dictionaryProvider),
     dictionaryModel: readString(value.dictionaryModel, defaultSiteSettings.dictionaryModel),
+    dictionaryApiKeyConfigured: dictionaryApiKeyConfigured || Boolean(process.env.DICTIONARY_AI_API_KEY),
     allowPublicSignup: readBoolean(value.allowPublicSignup, defaultSiteSettings.allowPublicSignup)
+  };
+}
+
+export async function getDictionaryAiSettings() {
+  const supabase = createSupabaseAdminClient();
+
+  if (!supabase) {
+    return {
+      provider: process.env.DICTIONARY_AI_PROVIDER ?? defaultSiteSettings.dictionaryProvider,
+      model: process.env.DICTIONARY_AI_MODEL ?? defaultSiteSettings.dictionaryModel,
+      apiKey: process.env.DICTIONARY_AI_API_KEY ?? ""
+    };
+  }
+
+  const { data, error } = await supabase.from("site_settings").select("value").eq("key", "global").maybeSingle();
+  const value = !error && data ? ((data as SiteSettingsRow).value ?? {}) : {};
+
+  return {
+    provider: readString(value.dictionaryProvider, process.env.DICTIONARY_AI_PROVIDER ?? defaultSiteSettings.dictionaryProvider),
+    model: readString(value.dictionaryModel, process.env.DICTIONARY_AI_MODEL ?? defaultSiteSettings.dictionaryModel),
+    apiKey: readString(value.dictionaryApiKey, process.env.DICTIONARY_AI_API_KEY ?? "")
   };
 }
 

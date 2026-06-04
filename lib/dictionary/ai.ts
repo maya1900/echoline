@@ -1,3 +1,4 @@
+import { getDictionaryAiSettings } from "@/lib/admin-data";
 import type { DictionaryEntry } from "@/lib/types";
 
 type ExplainInput = {
@@ -13,10 +14,11 @@ type ExplainResponse = {
   note?: string;
 };
 
-function getDictionaryAiConfig() {
-  const provider = process.env.DICTIONARY_AI_PROVIDER ?? "bigmodel";
-  const apiKey = process.env.DICTIONARY_AI_API_KEY;
-  const model = process.env.DICTIONARY_AI_MODEL ?? (provider === "siliconflow" ? "THUDM/GLM-4-9B-0414" : "glm-4-flash");
+async function getDictionaryAiConfig() {
+  const settings = await getDictionaryAiSettings();
+  const provider = settings.provider;
+  const apiKey = settings.apiKey;
+  const model = settings.model || (provider === "siliconflow" ? "THUDM/GLM-4-9B-0414" : "glm-4-flash");
   const baseUrl =
     process.env.DICTIONARY_AI_BASE_URL ??
     (provider === "siliconflow" ? "https://api.siliconflow.cn/v1/chat/completions" : "https://open.bigmodel.cn/api/paas/v4/chat/completions");
@@ -40,7 +42,7 @@ function parseJsonObject(content: string): ExplainResponse | undefined {
 }
 
 export async function explainWordInChinese(input: ExplainInput): Promise<DictionaryEntry | undefined> {
-  const { apiKey, baseUrl, model } = getDictionaryAiConfig();
+  const { apiKey, baseUrl, model } = await getDictionaryAiConfig();
 
   if (!apiKey) {
     return undefined;
