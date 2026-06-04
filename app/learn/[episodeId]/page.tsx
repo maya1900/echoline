@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { AppShell, SectionHeader } from "@/components/app-shell";
 import { LearningStudio } from "@/components/learning-studio";
+import { requireCurrentUser } from "@/lib/auth/require-user";
 import { getEpisode, getSeriesForEpisode, getSubtitlesForEpisode } from "@/lib/data";
 
 export default async function LearnPage({
@@ -9,6 +10,8 @@ export default async function LearnPage({
   params: Promise<{ episodeId: string }>;
 }) {
   const { episodeId } = await params;
+  await requireCurrentUser(`/learn/${episodeId}`);
+
   const episode = await getEpisode(episodeId);
   const parentSeries = await getSeriesForEpisode(episodeId);
   const lines = await getSubtitlesForEpisode(episodeId);

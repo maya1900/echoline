@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireAdminRequest } from "@/lib/auth/api";
 import { parseSubtitleText } from "@/lib/subtitles/parser";
 
 type SubtitleImportInput = {
@@ -20,69 +20,56 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No subtitle cues parsed" }, { status: 400 });
   }
 
-  const supabase = await createSupabaseServerClient();
+  const admin = await requireAdminRequest();
 
-  if (supabase) {
-    const {
-      data: { user }
-    } = await supabase.auth.getUser();
-
-    const { data: job, error: jobError } = await supabase
-      .from("admin_import_jobs")
-      .insert({
-        admin_id: user?.id,
-        episode_id: input.episodeId,
-        source_filename: input.sourceFilename,
-        status: "processing",
-        parsed_lines: 0
-      })
-      .select("id")
-      .single();
-
-    if (!jobError && job) {
-      const rows = lines.map((line) => ({
-        episode_id: input.episodeId,
-        line_index: line.lineIndex,
-        start_ms: line.startMs,
-        end_ms: line.endMs,
-        english_text: line.englishText,
-        chinese_text: line.chineseText,
-        keywords: line.keywords
-      }));
-      const { error: lineError } = await supabase.from("subtitle_lines").upsert(rows, { onConflict: "episode_id,line_index" });
-      const status = lineError ? "failed" : "completed";
-
-      const { data: updatedJob } = await supabase
-        .from("admin_import_jobs")
-        .update({
-          status,
-          parsed_lines: lineError ? 0 : lines.length,
-          error_message: lineError?.message
-        })
-        .eq("id", job.id)
-        .select("id,source_filename,status,parsed_lines,error_message,created_at")
-        .single();
-
-      if (!lineError) {
-        return NextResponse.json({ data: { job: updatedJob, lines } }, { status: 201 });
-      }
-
-      return NextResponse.json({ error: lineError.message, data: { job: updatedJob } }, { status: 500 });
-    }
+  if (admin.error) {
+    return admin.error;
   }
 
-  return NextResponse.json(
-    {
-      data: {
-        id: `job-${Date.now()}`,
-        status: "completed",
-        title: input.sourceFilename,
-        result: `解析 ${lines.length} 行字幕。`,
-        lines
-      }
-    },
-    { status: 201 }
-  );
+  const { data: job, error: jobError } = await admin.supabase
+    .from("admin_import_jobs")
+    .insert({
+      admin_id: admin.user.id,
+      episode_id: input.episodeId,
+      source_filename: input.sourceFilename,
+      status: "processing",
+      parsed_lines: 0
+    })
+    .select("id")
+    .single();
+
+  if (jobError || !job) {
+    return NextResponse.json({ error: jobError?.message ?? "Failed to create import job" }, { status: 500 });
+  }
+
+  const rows = lines.map((line) => ({
+    episode_id: input.episodeId,
+    line_index: line.lineIndex,
+    start_ms: line.startMs,
+    end_ms: line.endMs,
+    english_text: line.englishText,
+    chinese_text: line.chineseText,
+    keywords: line.keywords
+  }));
+  const { error: lineError } = await admin.supabase.from("subtitle_lines").upsert(rows, { onConflict: "episode_id,line_index" });
+  const status = lineError ? "failed" : "completed";
+
+  const { data: updatedJob } = await admin.supabase
+    .from("admin_import_jobs")
+    .update({
+      status,
+      parsed_lines: lineError ? 0 : lines.length,
+      error_message: lineError?.message
+    })
+    .eq("id", job.id)
+    .select("id,source_filename,status,parsed_lines,error_message,created_at")
+    .single();
+
+  if (lineError) {
+    return NextResponse.json({ error: lineError.message, data: { job: updatedJob } }, { status: 500 });
+  }
+
+  return NextResponse.json({ data: { job: updatedJob, lines } }, { status: 201 });
 }
 
 async function readSubtitleImportInput(request: Request): Promise<SubtitleImportInput> {

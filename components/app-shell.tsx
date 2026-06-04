@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { BookOpen, CalendarClock, ChartNoAxesCombined, Clapperboard, Library, LogOut, Settings, ShieldCheck } from "lucide-react";
-import { getCurrentUser } from "@/lib/auth/bootstrap";
+import { getCurrentUser, isCurrentUserAdmin } from "@/lib/auth/bootstrap";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -9,9 +9,10 @@ const navItems = [
   { href: "/progress", label: "进度", icon: ChartNoAxesCombined },
   { href: "/vocab", label: "生词", icon: BookOpen },
   { href: "/plan", label: "计划", icon: CalendarClock },
-  { href: "/settings", label: "设置", icon: Settings },
-  { href: "/admin", label: "导入", icon: ShieldCheck }
+  { href: "/settings", label: "设置", icon: Settings }
 ];
+
+const adminNavItem = { href: "/admin", label: "导入", icon: ShieldCheck };
 
 export async function AppShell({
   children,
@@ -21,6 +22,8 @@ export async function AppShell({
   active: string;
 }) {
   const user = await getCurrentUser();
+  const isAdmin = user ? await isCurrentUserAdmin() : false;
+  const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
 
   return (
     <div className="min-h-screen">
@@ -36,7 +39,7 @@ export async function AppShell({
             </span>
           </Link>
           <nav className="hidden items-center gap-1 lg:flex">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -67,7 +70,7 @@ export async function AppShell({
           )}
         </div>
         <nav className="flex gap-1 overflow-x-auto border-t border-[color:var(--line)] px-3 py-2 lg:hidden">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}

@@ -57,15 +57,7 @@ const statusText = {
   failed: "失败"
 };
 
-const defaultSubtitleText = `1
-00:00:01,000 --> 00:00:03,200
-I left the spare key on the table.
-我把备用钥匙放在桌上了。
-
-2
-00:00:03,500 --> 00:00:06,000
-Could you bring it downstairs?
-你能把它拿到楼下吗？`;
+const defaultCoverUrl = "https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=1200&q=80";
 
 export function AdminWorkbench({
   initialSeries,
@@ -102,7 +94,7 @@ export function AdminWorkbench({
   const [subtitleForm, setSubtitleForm] = useState({
     episodeId: initialSeries[0]?.episodes[0]?.id ?? "",
     sourceFilename: "episode.srt",
-    subtitleText: defaultSubtitleText
+    subtitleText: ""
   });
   const [editorEpisodeId, setEditorEpisodeId] = useState(initialSeries[0]?.episodes[0]?.id ?? "");
   const [subtitleLines, setSubtitleLines] = useState<SubtitleLine[]>([]);
@@ -137,7 +129,15 @@ export function AdminWorkbench({
     event.preventDefault();
     setIsSubmitting(true);
     setMessage("创建剧集中");
-    const response = await postJson<SeriesResponse>("/api/admin/series", seriesForm);
+    const payload = {
+      ...seriesForm,
+      originalTitle: seriesForm.originalTitle || seriesForm.title,
+      description: seriesForm.description || "个人导入剧集",
+      coverUrl: seriesForm.coverUrl || defaultCoverUrl,
+      difficulty: seriesForm.difficulty || "B1",
+      genre: seriesForm.genre || "生活 / 情景"
+    };
+    const response = await postJson<SeriesResponse>("/api/admin/series", payload);
 
     if (response) {
       const nextSeries = mapSeriesResponse(response);
@@ -158,6 +158,7 @@ export function AdminWorkbench({
     setMessage("创建集数中");
     const response = await postJson<EpisodeResponse>("/api/admin/episodes", {
       ...episodeForm,
+      description: episodeForm.description || episodeForm.title,
       durationSeconds: Math.max(1, episodeForm.durationMinutes) * 60
     });
 
@@ -185,7 +186,11 @@ export function AdminWorkbench({
     event.preventDefault();
     setIsSubmitting(true);
     setMessage("导入字幕中");
-    const response = await postJson<ImportResponse>("/api/admin/import-subtitles", subtitleForm);
+    const payload = {
+      ...subtitleForm,
+      sourceFilename: subtitleForm.sourceFilename || "subtitles.srt"
+    };
+    const response = await postJson<ImportResponse>("/api/admin/import-subtitles", payload);
 
     if (response) {
       const nextJob = mapImportResponse(response, subtitleForm.sourceFilename);
@@ -318,14 +323,16 @@ export function AdminWorkbench({
           <form onSubmit={submitSeries} className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
             <h3 className="font-bold">新建剧集</h3>
             <div className="mt-4 grid gap-3">
-              <TextField label="中文名" value={seriesForm.title} required onChange={(value) => setSeriesForm((current) => ({ ...current, title: value }))} />
-              <TextField label="英文名" value={seriesForm.originalTitle} onChange={(value) => setSeriesForm((current) => ({ ...current, originalTitle: value }))} />
-              <TextArea label="简介" value={seriesForm.description} onChange={(value) => setSeriesForm((current) => ({ ...current, description: value }))} />
-              <TextField label="封面 URL" value={seriesForm.coverUrl} onChange={(value) => setSeriesForm((current) => ({ ...current, coverUrl: value }))} />
+              <TextField label="剧名" value={seriesForm.title} required onChange={(value) => setSeriesForm((current) => ({ ...current, title: value }))} />
               <div className="grid grid-cols-2 gap-3">
                 <TextField label="难度" value={seriesForm.difficulty} required onChange={(value) => setSeriesForm((current) => ({ ...current, difficulty: value }))} />
                 <TextField label="题材" value={seriesForm.genre} required onChange={(value) => setSeriesForm((current) => ({ ...current, genre: value }))} />
               </div>
+              <AdvancedFields>
+                <TextField label="英文名" value={seriesForm.originalTitle} onChange={(value) => setSeriesForm((current) => ({ ...current, originalTitle: value }))} />
+                <TextArea label="简介" value={seriesForm.description} onChange={(value) => setSeriesForm((current) => ({ ...current, description: value }))} />
+                <TextField label="封面 URL" value={seriesForm.coverUrl} onChange={(value) => setSeriesForm((current) => ({ ...current, coverUrl: value }))} />
+              </AdvancedFields>
             </div>
             <SubmitButton disabled={isSubmitting} label="创建剧集" />
           </form>
@@ -342,14 +349,16 @@ export function AdminWorkbench({
                   </option>
                 ))}
               </SelectField>
-              <div className="grid grid-cols-3 gap-3">
-                <NumberField label="季" value={episodeForm.seasonNumber} min={1} onChange={(value) => setEpisodeForm((current) => ({ ...current, seasonNumber: value }))} />
-                <NumberField label="集" value={episodeForm.episodeNumber} min={1} onChange={(value) => setEpisodeForm((current) => ({ ...current, episodeNumber: value }))} />
-                <NumberField label="分钟" value={episodeForm.durationMinutes} min={1} onChange={(value) => setEpisodeForm((current) => ({ ...current, durationMinutes: value }))} />
-              </div>
               <TextField label="标题" value={episodeForm.title} required onChange={(value) => setEpisodeForm((current) => ({ ...current, title: value }))} />
-              <TextArea label="简介" value={episodeForm.description} onChange={(value) => setEpisodeForm((current) => ({ ...current, description: value }))} />
               <TextField label="媒体路径" value={episodeForm.mediaUrl} onChange={(value) => setEpisodeForm((current) => ({ ...current, mediaUrl: value }))} />
+              <AdvancedFields>
+                <div className="grid grid-cols-3 gap-3">
+                  <NumberField label="季" value={episodeForm.seasonNumber} min={1} onChange={(value) => setEpisodeForm((current) => ({ ...current, seasonNumber: value }))} />
+                  <NumberField label="集" value={episodeForm.episodeNumber} min={1} onChange={(value) => setEpisodeForm((current) => ({ ...current, episodeNumber: value }))} />
+                  <NumberField label="分钟" value={episodeForm.durationMinutes} min={1} onChange={(value) => setEpisodeForm((current) => ({ ...current, durationMinutes: value }))} />
+                </div>
+                <TextArea label="简介" value={episodeForm.description} onChange={(value) => setEpisodeForm((current) => ({ ...current, description: value }))} />
+              </AdvancedFields>
             </div>
             <SubmitButton disabled={isSubmitting || !episodeForm.seriesId} label="创建集数" />
           </form>
@@ -375,8 +384,10 @@ export function AdminWorkbench({
                   className="rounded-md border border-[color:var(--line)] bg-white/70 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[color:var(--ink)] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white"
                 />
               </label>
-              <TextField label="文件名" value={subtitleForm.sourceFilename} required onChange={(value) => setSubtitleForm((current) => ({ ...current, sourceFilename: value }))} />
               <TextArea label="SRT / VTT" value={subtitleForm.subtitleText} rows={10} required onChange={(value) => setSubtitleForm((current) => ({ ...current, subtitleText: value }))} />
+              <AdvancedFields>
+                <TextField label="文件名" value={subtitleForm.sourceFilename} required onChange={(value) => setSubtitleForm((current) => ({ ...current, sourceFilename: value }))} />
+              </AdvancedFields>
             </div>
             <SubmitButton disabled={isSubmitting || !subtitleForm.episodeId} label="导入字幕" />
           </form>
@@ -527,9 +538,9 @@ function mapImportResponse(row: ImportResponse, fallbackTitle: string): AdminImp
   }
 
   return {
-    id: row.id ?? `job-${Date.now()}`,
+    id: row.id ?? fallbackTitle,
     title: row.title ?? fallbackTitle,
-    status: row.status ?? "completed",
+    status: row.status ?? "failed",
     result: row.result ?? `解析 ${row.lines?.length ?? 0} 行字幕`,
     createdAt: "刚刚"
   };
@@ -572,6 +583,15 @@ function SubmitButton({ disabled, label }: { disabled: boolean; label: string })
       <Save className="h-4 w-4" aria-hidden="true" />
       {disabled ? "处理中" : label}
     </button>
+  );
+}
+
+function AdvancedFields({ children }: { children: React.ReactNode }) {
+  return (
+    <details className="rounded-md border border-[color:var(--line)] bg-white/40 p-3">
+      <summary className="cursor-pointer text-sm font-semibold text-[color:var(--muted)]">更多字段</summary>
+      <div className="mt-3 grid gap-3">{children}</div>
+    </details>
   );
 }
 

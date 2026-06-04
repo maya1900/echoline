@@ -8,13 +8,13 @@ import { cn } from "@/lib/utils";
 
 type Mode = "login" | "signup";
 
-export function LoginForm() {
+export function LoginForm({ nextPath = "/" }: { nextPath?: string }) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState(supabase ? "" : "当前未配置 Supabase 环境变量，登录表单处于 mock 模式。");
+  const [message, setMessage] = useState(supabase ? "" : "当前未配置 Supabase 环境变量，登录不可用。");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -35,7 +35,7 @@ export function LoginForm() {
             email,
             password,
             options: {
-              emailRedirectTo: `${window.location.origin}/auth/callback`
+              emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`
             }
           });
 
@@ -56,7 +56,7 @@ export function LoginForm() {
       await fetch("/api/auth/bootstrap", { method: "POST" });
     }
 
-    router.push("/");
+    router.push(nextPath);
     router.refresh();
   }
 

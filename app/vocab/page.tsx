@@ -1,8 +1,11 @@
 import { AppShell, SectionHeader } from "@/components/app-shell";
 import { VocabWorkbench } from "@/components/workbenches/vocab-workbench";
+import { requireCurrentUser } from "@/lib/auth/require-user";
 import { listVocabItems } from "@/lib/data";
 
 export default async function VocabPage() {
+  await requireCurrentUser("/vocab");
+
   const vocabItems = await listVocabItems();
 
   return (

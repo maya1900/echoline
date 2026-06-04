@@ -8,7 +8,6 @@ export function SettingsWorkbench() {
   const [englishFirst, setEnglishFirst] = useState(true);
   const [autoPause, setAutoPause] = useState(true);
   const [notify, setNotify] = useState(false);
-  const [mockAi, setMockAi] = useState(true);
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
@@ -29,8 +28,8 @@ export function SettingsWorkbench() {
       </SettingGroup>
 
       <SettingGroup icon={Settings2} title="AI 评分">
-        <SettingToggle label="使用 mock 评分" active={mockAi} onClick={() => setMockAi((value) => !value)} />
-        <div className="rounded-md border border-[color:var(--line)] p-4 text-sm leading-6 text-[color:var(--muted)]">V1 只展示转写、准确度、完整度、漏词、总分和中文短反馈。</div>
+        <div className="rounded-md border border-[color:var(--line)] p-4 text-sm font-semibold">评分服务未接入</div>
+        <div className="rounded-md border border-[color:var(--line)] p-4 text-sm leading-6 text-[color:var(--muted)]">接入后只展示转写、准确度、完整度、漏词、总分和中文短反馈。</div>
       </SettingGroup>
 
       <SettingGroup icon={Bell} title="提醒">

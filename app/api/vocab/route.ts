@@ -39,43 +39,40 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const supabase = await createSupabaseServerClient();
 
-  if (supabase) {
-    const {
-      data: { user }
-    } = await supabase.auth.getUser();
-
-    if (user) {
-      const { data, error } = await supabase
-        .from("vocab_items")
-        .upsert({
-          user_id: user.id,
-          word: body.word,
-          phonetic: body.phonetic ?? "",
-          translation: body.translation ?? "",
-          context_sentence: body.contextSentence ?? "",
-          episode_id: body.episodeId,
-          subtitle_line_id: body.subtitleLineId,
-          due_at: new Date().toISOString()
-        })
-        .select("id,word,phonetic,translation,context_sentence,status,review_count,due_at")
-        .single();
-
-      if (!error && data) {
-        return NextResponse.json({ data: serializeVocab(data as VocabRow) }, { status: 201 });
-      }
-    }
+  if (!supabase) {
+    return NextResponse.json({ error: "Supabase is not configured" }, { status: 503 });
   }
 
-  return NextResponse.json(
-    {
-      data: {
-        id: `vocab-${Date.now()}`,
-        status: "new",
-        reviewCount: 0,
-        dueAt: "今天",
-        ...body
-      }
-    },
-    { status: 201 }
-  );
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!body.word) {
+    return NextResponse.json({ error: "Missing word" }, { status: 400 });
+  }
+
+  const { data, error } = await supabase
+    .from("vocab_items")
+    .upsert({
+      user_id: user.id,
+      word: body.word,
+      phonetic: body.phonetic ?? "",
+      translation: body.translation ?? "",
+      context_sentence: body.contextSentence ?? "",
+      episode_id: body.episodeId,
+      subtitle_line_id: body.subtitleLineId,
+      due_at: new Date().toISOString()
+    })
+    .select("id,word,phonetic,translation,context_sentence,status,review_count,due_at")
+    .single();
+
+  if (error || !data) {
+    return NextResponse.json({ error: error?.message ?? "Failed to save vocab item" }, { status: 500 });
+  }
+
+  return NextResponse.json({ data: serializeVocab(data as VocabRow) }, { status: 201 });
 }

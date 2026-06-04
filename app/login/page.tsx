@@ -2,7 +2,14 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { LoginForm } from "@/components/auth/login-form";
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
+  const nextPath = next?.startsWith("/") && !next.startsWith("//") ? next : "/";
+
   return (
     <main className="grid min-h-screen place-items-center px-4 py-8">
       <section className="w-full max-w-md rounded-md border border-[color:var(--ink)] bg-[color:var(--panel)] p-5 shadow-[8px_8px_0_rgba(23,20,17,0.12)]">
@@ -11,7 +18,7 @@ export default function LoginPage() {
           返回工作台
         </Link>
         <h1 className="text-2xl font-bold">登录 Your English Coach</h1>
-        <LoginForm />
+        <LoginForm nextPath={nextPath} />
       </section>
     </main>
   );

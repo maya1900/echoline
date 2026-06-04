@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { AppShell, Metric, SectionHeader } from "@/components/app-shell";
+import { requireCurrentUser } from "@/lib/auth/require-user";
 import { getProgressData, getSubtitlesForEpisode, listSeries } from "@/lib/data";
 
 export default async function ProgressPage() {
+  await requireCurrentUser("/progress");
+
   const series = await listSeries();
   const { rows: progressRows, summary: progressSummary } = await getProgressData();
   const currentEpisode = series[0].episodes[0];

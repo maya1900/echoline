@@ -36,3 +36,37 @@ export async function getCurrentUser() {
 
   return user;
 }
+
+export async function getCurrentProfile() {
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase) {
+    return null;
+  }
+
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const { data, error } = await supabase.from("profiles").select("id,email,display_name,role").eq("id", user.id).maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return data as {
+    id: string;
+    email: string | null;
+    display_name: string | null;
+    role: "user" | "admin";
+  };
+}
+
+export async function isCurrentUserAdmin() {
+  const profile = await getCurrentProfile();
+  return profile?.role === "admin";
+}

@@ -165,6 +165,36 @@ alter table public.repeat_attempts enable row level security;
 alter table public.vocab_items enable row level security;
 alter table public.admin_import_jobs enable row level security;
 
+grant usage on schema public to anon, authenticated, service_role;
+
+grant select on public.series to anon, authenticated;
+grant select on public.episodes to anon, authenticated;
+grant select on public.subtitle_lines to anon, authenticated;
+
+grant select on public.dictionary_entries to anon, authenticated;
+
+grant select, insert, update on public.profiles to authenticated;
+grant select, insert, update, delete on public.learning_progress to authenticated;
+grant select, insert, update, delete on public.study_plans to authenticated;
+grant select, insert, update, delete on public.repeat_attempts to authenticated;
+grant select, insert, update, delete on public.vocab_items to authenticated;
+
+grant select, insert, update, delete on public.series to authenticated;
+grant select, insert, update, delete on public.episodes to authenticated;
+grant select, insert, update, delete on public.subtitle_lines to authenticated;
+grant select, insert, update, delete on public.admin_import_jobs to authenticated;
+
+grant all privileges on public.profiles to service_role;
+grant all privileges on public.series to service_role;
+grant all privileges on public.episodes to service_role;
+grant all privileges on public.subtitle_lines to service_role;
+grant all privileges on public.dictionary_entries to service_role;
+grant all privileges on public.learning_progress to service_role;
+grant all privileges on public.study_plans to service_role;
+grant all privileges on public.repeat_attempts to service_role;
+grant all privileges on public.vocab_items to service_role;
+grant all privileges on public.admin_import_jobs to service_role;
+
 create policy "profiles read own" on public.profiles
   for select using (auth.uid() = id);
 
@@ -191,6 +221,9 @@ create policy "published subtitle lines readable" on public.subtitle_lines
 
 create policy "dictionary readable by authenticated" on public.dictionary_entries
   for select using (auth.uid() is not null);
+
+create policy "dictionary readable publicly" on public.dictionary_entries
+  for select using (true);
 
 create policy "progress own all" on public.learning_progress
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
