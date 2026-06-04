@@ -4,12 +4,14 @@ import { defineWord } from "@/lib/data";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const word = searchParams.get("word")?.toLowerCase().trim();
+  const englishSentence = searchParams.get("englishSentence")?.trim();
+  const chineseSentence = searchParams.get("chineseSentence")?.trim();
 
   if (!word) {
     return NextResponse.json({ error: "Missing word" }, { status: 400 });
   }
 
-  const entry = await defineWord(word);
+  const entry = await defineWord(word, { englishSentence, chineseSentence });
 
   if (!entry) {
     return NextResponse.json({
@@ -17,7 +19,10 @@ export async function GET(request: Request) {
         word,
         phonetic: "",
         translation: "暂无释义",
-        definition: "本地词典未命中，后续可回退到 AI 语境讲解。"
+        definition: englishSentence ?? "",
+        inContext: "暂未命中中文释义",
+        note: "可先收藏，稍后补充解释。",
+        source: "missing"
       }
     });
   }

@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Filter, Play, Search } from "lucide-react";
+import { Clock3, Filter, Play, Search } from "lucide-react";
 import type { Series } from "@/lib/types";
+import { formatTime } from "@/lib/utils";
 
 export function SeriesBrowser({ items }: { items: Series[] }) {
   const [query, setQuery] = useState("");
@@ -64,10 +65,33 @@ export function SeriesBrowser({ items }: { items: Series[] }) {
                     <div className="h-2 rounded-full bg-[color:var(--amber)]" style={{ width: `${item.progress}%` }} />
                   </div>
                 </div>
-                <Link href={`/learn/${item.episodes[0].id}`} className="ink-action flex h-11 shrink-0 items-center gap-2 rounded-md px-4 text-sm font-semibold">
+                <Link href={`/learn/${item.episodes[0]?.id}`} className="ink-action flex h-11 shrink-0 items-center gap-2 rounded-md px-4 text-sm font-semibold">
                   <Play className="h-4 w-4" aria-hidden="true" />
-                  学习
+                  从头学
                 </Link>
+              </div>
+              <div className="mt-5 border-t border-[color:var(--line)] pt-4">
+                <h3 className="text-sm font-bold">学习片段</h3>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {item.episodes.map((episode) => (
+                    <Link
+                      key={episode.id}
+                      href={`/learn/${episode.id}`}
+                      className="group/episode rounded-md border border-[color:var(--line)] bg-white/45 p-3 text-sm transition hover:border-[color:var(--ink)] hover:bg-white"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold group-hover/episode:underline">{episode.title}</p>
+                          <p className="mt-1 flex items-center gap-1 text-xs text-[color:var(--muted)]">
+                            <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+                            {formatTime(episode.durationSeconds)}
+                          </p>
+                        </div>
+                        <Play className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--amber)]" aria-hidden="true" />
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </div>
             </div>
           </article>

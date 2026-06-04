@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChevronLeft, ChevronRight, Eye, EyeOff, Mic, Pause, Play, Repeat, RotateCcw, Volume2 } from "lucide-react";
+import Link from "next/link";
+import { BookOpen, ChevronLeft, ChevronRight, Eye, EyeOff, ListVideo, Mic, Pause, Play, Repeat, RotateCcw, Volume2 } from "lucide-react";
 import type { DictionaryEntry, Episode, LearningMode, RepeatAttempt, Series, SubtitleLine } from "@/lib/types";
 import { cn, msToClock } from "@/lib/utils";
 
@@ -29,12 +30,16 @@ export function LearningStudio({
   const [showChinese, setShowChinese] = useState(true);
   const [speed, setSpeed] = useState(0.9);
   const [loopCount, setLoopCount] = useState(3);
+  const [maskBurnedSubtitles, setMaskBurnedSubtitles] = useState(true);
+  const [maskHeight, setMaskHeight] = useState(11);
+  const [maskBottom, setMaskBottom] = useState(15);
   const [isPlaying, setIsPlaying] = useState(false);
   const [mediaUrl, setMediaUrl] = useState(episode.mediaUrl);
   const [mediaError, setMediaError] = useState("");
   const [loopPass, setLoopPass] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [attempt, setAttempt] = useState<RepeatAttempt | null>(null);
+  const [attemptStatus, setAttemptStatus] = useState("");
   const [lookupWord, setLookupWord] = useState<string | null>(null);
   const [lookup, setLookup] = useState<DictionaryEntry | null>(null);
   const [lookupStatus, setLookupStatus] = useState("");
@@ -77,6 +82,25 @@ export function LearningStudio({
   }, [speed]);
 
   useEffect(() => {
+    const stored = window.localStorage.getItem(`subtitle-mask:${episode.id}`);
+
+    if (!stored) {
+      setMaskHeight(11);
+      setMaskBottom(15);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored) as Partial<{ height: number; bottom: number }>;
+      setMaskHeight(typeof parsed.height === "number" ? parsed.height : 11);
+      setMaskBottom(typeof parsed.bottom === "number" ? parsed.bottom : 15);
+    } catch {
+      setMaskHeight(11);
+      setMaskBottom(15);
+    }
+  }, [episode.id]);
+
+  useEffect(() => {
     setLoopPass(0);
     const media = mediaRef.current;
 
@@ -99,7 +123,12 @@ export function LearningStudio({
       setLookup(null);
       setLookupStatus("查询中");
       setVocabStatus("");
-      const response = await fetch(`/api/define?word=${encodeURIComponent(lookupWord)}`).catch(() => null);
+      const params = new URLSearchParams({
+        word: lookupWord,
+        englishSentence: current.englishText,
+        chineseSentence: current.chineseText
+      });
+      const response = await fetch(`/api/define?${params.toString()}`).catch(() => null);
       const payload = response ? ((await response.json().catch(() => null)) as { data?: DictionaryEntry } | null) : null;
 
       if (active) {
@@ -112,7 +141,7 @@ export function LearningStudio({
     return () => {
       active = false;
     };
-  }, [lookupWord]);
+  }, [current.chineseText, current.englishText, lookupWord]);
 
   async function saveProgress(line: SubtitleLine, options: { completed?: boolean; repeatCount?: number; bestScore?: number } = {}) {
     await fetch("/api/progress", {
@@ -231,6 +260,7 @@ export function LearningStudio({
 
   async function submitRecording() {
     setIsRecording(false);
+    setAttemptStatus("评分中");
     const response = await fetch("/api/attempts/score", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -241,26 +271,39 @@ export function LearningStudio({
         subtitleLineId: current.id
       })
     }).catch(() => null);
-    const payload = response ? ((await response.json().catch(() => null)) as { data?: RepeatAttempt } | null) : null;
+    const payload = response ? ((await response.json().catch(() => null)) as { data?: RepeatAttempt; error?: string } | null) : null;
     const nextAttempt = payload?.data;
 
     if (nextAttempt) {
       setAttempt(nextAttempt);
+      setAttemptStatus("");
       void saveProgress(current, { completed: true, repeatCount: 1, bestScore: nextAttempt.overall });
+      return;
     }
+
+    setAttemptStatus(payload?.error === "Repeat scoring service is not connected yet" ? "评分服务未接入" : "评分失败");
+  }
+
+  function updateMaskSettings(next: Partial<{ height: number; bottom: number }>) {
+    const height = next.height ?? maskHeight;
+    const bottom = next.bottom ?? maskBottom;
+
+    setMaskHeight(height);
+    setMaskBottom(bottom);
+    window.localStorage.setItem(`subtitle-mask:${episode.id}`, JSON.stringify({ height, bottom }));
   }
 
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
       <section className="space-y-4">
         <div className="overflow-hidden rounded-md border border-[color:var(--ink)] bg-[color:var(--panel)]">
-          <div className="relative min-h-[300px] bg-[color:var(--ink)] text-white">
-            <img src={parentSeries.coverUrl} alt={parentSeries.title} className="absolute inset-0 h-full w-full object-cover opacity-30" />
+          <div className="relative aspect-video min-h-[420px] overflow-hidden bg-black text-white lg:min-h-[560px]">
+            {!mediaUrl ? <img src={parentSeries.coverUrl} alt={parentSeries.title} className="absolute inset-0 h-full w-full object-cover opacity-60" /> : null}
             {mediaUrl ? (
               <video
                 ref={mediaRef}
                 src={mediaUrl}
-                className="absolute inset-0 h-full w-full object-cover opacity-30"
+                className="absolute inset-0 h-full w-full bg-black object-contain"
                 playsInline
                 preload="metadata"
                 onPlay={() => setIsPlaying(true)}
@@ -273,8 +316,15 @@ export function LearningStudio({
                 }}
               />
             ) : null}
-            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(23,20,17,0.1),rgba(23,20,17,0.86))]" />
-            <div className="relative flex min-h-[300px] flex-col justify-between p-5 sm:p-6">
+            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.36),rgba(0,0,0,0.02)_32%,rgba(0,0,0,0.44))]" />
+            {maskBurnedSubtitles ? (
+              <div
+                className="pointer-events-none absolute inset-x-0 z-10 border-y border-white/10 bg-black"
+                style={{ bottom: `${maskBottom}%`, height: `${maskHeight}%` }}
+                aria-hidden="true"
+              />
+            ) : null}
+            <div className="relative z-20 flex h-full min-h-[420px] flex-col justify-between p-5 sm:p-6 lg:min-h-[560px]">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm text-white/70">
@@ -283,18 +333,6 @@ export function LearningStudio({
                   <h1 className="mt-1 text-2xl font-bold">{episode.title}</h1>
                 </div>
                 <span className="rounded-md border border-white/20 px-3 py-1 text-sm">{msToClock(current.startMs)} - {msToClock(current.endMs)}</span>
-              </div>
-
-              <div className="mx-auto w-full max-w-4xl py-8 text-center">
-                {mode === "call_response" && !attempt ? <p className="mb-3 text-sm font-semibold text-[color:var(--amber)]">听上一句，然后接下一句</p> : null}
-                {showEnglish ? (
-                  <p className="sentence-font text-3xl font-bold leading-tight sm:text-4xl">
-                    {renderClickableWords(visibleLine.englishText, setLookupWord, attempt?.missedWords)}
-                  </p>
-                ) : (
-                  <p className="sentence-font text-3xl font-bold leading-tight sm:text-4xl">••••••</p>
-                )}
-                {showChinese ? <p className="mt-4 text-lg leading-8 text-white/78">{visibleLine.chineseText}</p> : null}
               </div>
 
               <div className="flex flex-wrap items-center justify-center gap-2">
@@ -313,6 +351,20 @@ export function LearningStudio({
             </div>
           </div>
 
+          <div className="border-t border-[color:var(--ink)] bg-[color:var(--paper)] px-4 py-4 sm:px-5">
+            <div className="mx-auto max-w-5xl text-center">
+              {mode === "call_response" && !attempt ? <p className="mb-2 text-sm font-semibold text-[color:var(--amber)]">听上一句，然后接下一句</p> : null}
+              {showEnglish ? (
+                <p className="sentence-font text-2xl font-bold leading-snug sm:text-3xl">
+                  {renderClickableWords(visibleLine.englishText, setLookupWord, attempt?.missedWords)}
+                </p>
+              ) : (
+                <p className="sentence-font text-2xl font-bold leading-snug sm:text-3xl">••••••</p>
+              )}
+              {showChinese ? <p className="mt-2 text-base leading-7 text-[color:var(--muted)] sm:text-lg">{visibleLine.chineseText}</p> : null}
+            </div>
+          </div>
+
           <div className="border-t border-[color:var(--line)] p-4">
             <div className="flex gap-2 overflow-x-auto pb-1">
               {modes.map((item) => (
@@ -321,6 +373,7 @@ export function LearningStudio({
                   onClick={() => {
                     setMode(item.id);
                     setAttempt(null);
+                    setAttemptStatus("");
                   }}
                   className={cn(
                     "h-10 shrink-0 rounded-md border border-[color:var(--line)] px-3 text-sm font-semibold",
@@ -335,6 +388,7 @@ export function LearningStudio({
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <ControlToggle active={showEnglish} onClick={() => setShowEnglish((value) => !value)} icon={showEnglish ? Eye : EyeOff} label="英文字幕" />
               <ControlToggle active={showChinese} onClick={() => setShowChinese((value) => !value)} icon={showChinese ? Eye : EyeOff} label="中文字幕" />
+              <ControlToggle active={maskBurnedSubtitles} onClick={() => setMaskBurnedSubtitles((value) => !value)} icon={maskBurnedSubtitles ? EyeOff : Eye} label="遮挡硬字幕" />
               <label className="rounded-md border border-[color:var(--line)] p-3 text-sm">
                 <span className="mb-2 flex items-center gap-2 font-semibold">
                   <Volume2 className="h-4 w-4" aria-hidden="true" />
@@ -349,6 +403,20 @@ export function LearningStudio({
                 </span>
                 <input type="range" min="1" max="8" step="1" value={loopCount} onChange={(event) => setLoopCount(Number(event.target.value))} className="w-full accent-[color:var(--amber)]" />
               </label>
+              <label className="rounded-md border border-[color:var(--line)] p-3 text-sm">
+                <span className="mb-2 flex items-center gap-2 font-semibold">
+                  <EyeOff className="h-4 w-4" aria-hidden="true" />
+                  遮挡高度 {maskHeight}%
+                </span>
+                <input type="range" min="6" max="22" step="1" value={maskHeight} onChange={(event) => updateMaskSettings({ height: Number(event.target.value) })} className="w-full accent-[color:var(--red)]" />
+              </label>
+              <label className="rounded-md border border-[color:var(--line)] p-3 text-sm">
+                <span className="mb-2 flex items-center gap-2 font-semibold">
+                  <EyeOff className="h-4 w-4" aria-hidden="true" />
+                  离底部 {maskBottom}%
+                </span>
+                <input type="range" min="0" max="34" step="1" value={maskBottom} onChange={(event) => updateMaskSettings({ bottom: Number(event.target.value) })} className="w-full accent-[color:var(--red)]" />
+              </label>
             </div>
           </div>
         </div>
@@ -361,11 +429,26 @@ export function LearningStudio({
                 <p className="text-sm text-[color:var(--muted)]">V1 只评估内容准确度和完整度，不展示发音或流利度分。</p>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => setAttempt(null)} className="grid h-11 w-11 place-items-center rounded-md border border-[color:var(--line)]" aria-label="重置评分">
+                <button
+                  onClick={() => {
+                    setAttempt(null);
+                    setAttemptStatus("");
+                  }}
+                  className="grid h-11 w-11 place-items-center rounded-md border border-[color:var(--line)]"
+                  aria-label="重置评分"
+                >
                   <RotateCcw className="h-4 w-4" aria-hidden="true" />
                 </button>
                 <button
-                  onClick={() => (isRecording ? submitRecording() : setIsRecording(true))}
+                  onClick={() => {
+                    if (isRecording) {
+                      void submitRecording();
+                      return;
+                    }
+
+                    setAttemptStatus("");
+                    setIsRecording(true);
+                  }}
                   className={cn("flex h-11 min-w-36 items-center justify-center gap-2 rounded-md px-4 font-semibold text-white", isRecording ? "bg-[color:var(--red)]" : "bg-[color:var(--green)]")}
                 >
                   <Mic className="h-4 w-4" aria-hidden="true" />
@@ -388,11 +471,34 @@ export function LearningStudio({
                 </div>
               </div>
             ) : null}
+            {attemptStatus && !attempt ? <p className="mt-4 rounded-md border border-[color:var(--line)] bg-white/60 p-3 text-sm text-[color:var(--muted)]">{attemptStatus}</p> : null}
           </div>
         )}
       </section>
 
       <aside className="space-y-4">
+        <div className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
+          <div className="flex items-center gap-2">
+            <ListVideo className="h-4 w-4 text-[color:var(--amber)]" aria-hidden="true" />
+            <h2 className="font-bold">片段</h2>
+          </div>
+          <div className="quiet-scrollbar mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+            {parentSeries.episodes.map((item) => (
+              <Link
+                key={item.id}
+                href={`/learn/${item.id}`}
+                className={cn(
+                  "flex min-h-11 items-center justify-between gap-3 rounded-md border border-[color:var(--line)] px-3 py-2 text-sm transition hover:border-[color:var(--ink)]",
+                  item.id === episode.id && "border-[color:var(--ink)] bg-white font-semibold"
+                )}
+              >
+                <span className="min-w-0 truncate">{item.title}</span>
+                <Play className="h-3.5 w-3.5 shrink-0 text-[color:var(--amber)]" aria-hidden="true" />
+              </Link>
+            ))}
+          </div>
+        </div>
+
         <div className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
           <h2 className="font-bold">字幕队列</h2>
           <div className="quiet-scrollbar mt-3 max-h-[440px] space-y-2 overflow-y-auto pr-1">
@@ -427,7 +533,14 @@ export function LearningStudio({
             <div className="mt-3 rounded-md border border-[color:var(--line)] p-3">
               <p className="text-xl font-bold">{lookupWord}</p>
               <p className="mt-1 text-sm text-[color:var(--muted)]">{lookup?.phonetic ?? "暂无音标"}</p>
-              <p className="mt-3 text-sm leading-6">{lookupStatus || lookup?.translation || "本地词典未命中，可收藏后稍后补充语境解释。"}</p>
+              <p className="mt-3 text-base font-semibold leading-6">{lookupStatus || lookup?.translation || "暂无释义"}</p>
+              {lookup?.inContext ? (
+                <p className="mt-3 rounded-md bg-white/70 p-3 text-sm leading-6">
+                  <span className="font-semibold">这句里：</span>
+                  {lookup.inContext}
+                </p>
+              ) : null}
+              {lookup?.note ? <p className="mt-2 text-sm leading-6 text-[color:var(--muted)]">{lookup.note}</p> : null}
               <button onClick={saveVocab} className="ink-action mt-3 h-10 w-full rounded-md text-sm font-semibold">
                 {vocabStatus || "收藏到生词本"}
               </button>

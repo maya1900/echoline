@@ -76,6 +76,10 @@ export type DictionaryEntry = {
   phonetic: string;
   translation: string;
   definition: string;
+  partOfSpeech?: string;
+  inContext?: string;
+  note?: string;
+  source?: "supabase" | "fallback" | "ai" | "missing";
 };
 
 export type RepeatAttempt = {

@@ -1,14 +1,43 @@
 import Link from "next/link";
-import { ArrowRight, BookOpen, CheckCircle2, Clock3, Headphones, Play, Repeat2 } from "lucide-react";
+import { ArrowRight, BookOpen, Clock3, Headphones, ListVideo, Play } from "lucide-react";
 import { AppShell, Metric, SectionHeader } from "@/components/app-shell";
-import { getStudyPlan, getSubtitlesForEpisode, listSeries } from "@/lib/data";
+import { countDueVocabItems, getProgressData, getStudyPlan, getSubtitlesForEpisode, listSeries } from "@/lib/data";
 import { formatTime } from "@/lib/utils";
 
 export default async function DashboardPage() {
   const series = await listSeries();
   const studyPlan = await getStudyPlan();
+  const { summary: progressSummary } = await getProgressData();
+  const dueVocabCount = await countDueVocabItems();
   const currentSeries = series[0];
-  const currentEpisode = currentSeries.episodes[0];
+
+  if (!currentSeries || currentSeries.episodes.length === 0) {
+    return (
+      <AppShell active="/">
+        <SectionHeader eyebrow="今日学习" title="暂无可学习内容" />
+        <section className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-5">
+          <h2 className="text-xl font-bold">还没有发布的学习片段</h2>
+          <p className="mt-2 text-sm leading-6 text-[color:var(--muted)]">请先在导入页添加剧集、片段和字幕，或检查 Supabase 数据是否可读。</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link href="/admin" className="ink-action flex h-10 items-center gap-2 rounded-md px-3 text-sm font-semibold">
+              去导入
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+            <Link href="/series" className="flex h-10 items-center gap-2 rounded-md border border-[color:var(--line)] px-3 text-sm font-semibold">
+              查看剧集
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </div>
+        </section>
+      </AppShell>
+    );
+  }
+
+  const currentEpisode =
+    currentSeries.episodes.find((episode) => episode.progress > 0 && episode.progress < 100) ??
+    currentSeries.episodes.find((episode) => episode.progress < 100) ??
+    currentSeries.episodes[0];
+  const queuedEpisodes = currentSeries.episodes.filter((episode) => episode.id !== currentEpisode.id && episode.progress < 100).slice(0, 2);
   const lines = await getSubtitlesForEpisode(currentEpisode.id);
 
   return (
@@ -112,10 +141,60 @@ export default async function DashboardPage() {
       </section>
 
       <section className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="连续学习" value="9 天" tone="green" />
-        <Metric label="本周练习句子" value="73" tone="amber" />
-        <Metric label="平均内容正确率" value="86%" />
-        <Metric label="今日到期生词" value="12" tone="red" />
+        <Metric label="连续学习" value={`${progressSummary.streakDays} 天`} tone="green" />
+        <Metric label="本周练习句子" value={`${progressSummary.weeklyLines}`} tone="amber" />
+        <Metric label="平均内容正确率" value={`${progressSummary.averageAccuracy}%`} />
+        <Metric label="今日到期生词" value={`${dueVocabCount}`} tone="red" />
+      </section>
+
+      <section className="mt-8">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold">学习队列</h2>
+            <p className="mt-1 text-sm text-[color:var(--muted)]">按当前进度推荐</p>
+          </div>
+          <Link href="/series" className="flex h-10 items-center gap-2 rounded-md border border-[color:var(--line)] px-3 text-sm font-semibold">
+            全部
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+          <Link href={`/learn/${currentEpisode.id}`} className="group rounded-md border border-[color:var(--ink)] bg-[color:var(--panel)] p-5 transition hover:bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-[color:var(--amber)]">推荐继续</p>
+                <h3 className="mt-2 truncate text-xl font-bold group-hover:underline">{currentEpisode.title}</h3>
+              </div>
+              <span className="ink-action flex h-10 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-semibold">
+                <Play className="h-4 w-4" aria-hidden="true" />
+                进入学习
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+              <span className="rounded-md border border-[color:var(--line)] px-3 py-2">进度 {currentEpisode.progress}%</span>
+              <span className="rounded-md border border-[color:var(--line)] px-3 py-2">S{currentEpisode.seasonNumber}E{currentEpisode.episodeNumber}</span>
+              <span className="rounded-md border border-[color:var(--line)] px-3 py-2">{formatTime(currentEpisode.durationSeconds)}</span>
+            </div>
+            <div className="mt-4 h-2 rounded-full bg-black/10">
+              <div className="h-2 rounded-full bg-[color:var(--amber)]" style={{ width: `${currentEpisode.progress}%` }} />
+            </div>
+          </Link>
+
+          <div className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
+            <div className="flex items-center gap-2">
+              <ListVideo className="h-4 w-4 text-[color:var(--amber)]" aria-hidden="true" />
+              <h3 className="font-bold">后续片段</h3>
+            </div>
+            <div className="mt-3 space-y-2">
+              {queuedEpisodes.map((episode) => (
+                <Link key={episode.id} href={`/learn/${episode.id}`} className="flex min-h-11 items-center justify-between gap-3 rounded-md border border-[color:var(--line)] px-3 py-2 text-sm hover:border-[color:var(--ink)]">
+                  <span className="min-w-0 truncate">{episode.title}</span>
+                  <span className="shrink-0 text-xs text-[color:var(--muted)]">{episode.progress}%</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="mt-8">
@@ -128,21 +207,21 @@ export default async function DashboardPage() {
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           {series.map((item) => (
-            <Link key={item.id} href={`/learn/${item.episodes[0].id}`} className="group grid gap-4 rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4 sm:grid-cols-[128px_1fr]">
+            <article key={item.id} className="grid gap-4 rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4 sm:grid-cols-[128px_1fr]">
               <img src={item.coverUrl} alt={`${item.title} 封面`} className="h-32 w-full rounded object-cover sm:w-32" />
               <div className="min-w-0">
                 <div className="mb-2 flex items-center gap-2 text-xs text-[color:var(--muted)]">
-                  <CheckCircle2 className="h-4 w-4 text-[color:var(--green)]" aria-hidden="true" />
-                  {item.progress}% 完成
+                  <ListVideo className="h-4 w-4 text-[color:var(--green)]" aria-hidden="true" />
+                  {item.episodes.length} 个片段
                 </div>
-                <h3 className="truncate text-lg font-bold group-hover:underline">{item.title}</h3>
+                <h3 className="truncate text-lg font-bold">{item.title}</h3>
                 <p className="mt-1 line-clamp-2 text-sm leading-6 text-[color:var(--muted)]">{item.description}</p>
-                <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-[color:var(--amber)]">
-                  <Repeat2 className="h-4 w-4" aria-hidden="true" />
-                  {item.episodes.length} 集可学习
-                </div>
+                <Link href="/series" className="mt-3 inline-flex h-9 items-center gap-2 rounded-md border border-[color:var(--line)] px-3 text-sm font-semibold hover:border-[color:var(--ink)]">
+                  查看片段
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
               </div>
-            </Link>
+            </article>
           ))}
         </div>
       </section>
