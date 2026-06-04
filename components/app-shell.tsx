@@ -12,7 +12,7 @@ const navItems = [
   { href: "/settings", label: "设置", icon: Settings }
 ];
 
-const adminNavItem = { href: "/admin", label: "导入", icon: ShieldCheck };
+const adminNavItem = { href: "/admin", label: "后台", icon: ShieldCheck };
 
 export async function AppShell({
   children,

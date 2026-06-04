@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 
 type Mode = "login" | "signup";
 
-export function LoginForm({ nextPath = "/" }: { nextPath?: string }) {
+export function LoginForm({ nextPath = "/", allowSignup = true }: { nextPath?: string; allowSignup?: boolean }) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const [mode, setMode] = useState<Mode>("login");
@@ -16,6 +16,7 @@ export function LoginForm({ nextPath = "/" }: { nextPath?: string }) {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState(supabase ? "" : "当前未配置 Supabase 环境变量，登录不可用。");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const visibleModes: Mode[] = allowSignup ? ["login", "signup"] : ["login"];
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -27,6 +28,12 @@ export function LoginForm({ nextPath = "/" }: { nextPath?: string }) {
 
     setIsSubmitting(true);
     setMessage("");
+
+    if (mode === "signup" && !allowSignup) {
+      setIsSubmitting(false);
+      setMessage("当前未开放注册，请联系管理员创建账号。");
+      return;
+    }
 
     const authRequest =
       mode === "login"
@@ -62,8 +69,8 @@ export function LoginForm({ nextPath = "/" }: { nextPath?: string }) {
 
   return (
     <form onSubmit={handleSubmit} className="mt-6 grid gap-3">
-      <div className="grid grid-cols-2 gap-2 rounded-md border border-[color:var(--line)] bg-white/50 p-1">
-        {(["login", "signup"] as const).map((item) => (
+      <div className={cn("grid gap-2 rounded-md border border-[color:var(--line)] bg-white/50 p-1", allowSignup ? "grid-cols-2" : "grid-cols-1")}>
+        {visibleModes.map((item) => (
           <button
             key={item}
             type="button"

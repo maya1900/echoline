@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { LoginForm } from "@/components/auth/login-form";
+import { getSiteSettings } from "@/lib/admin-data";
 
 export default async function LoginPage({
   searchParams
@@ -9,6 +10,7 @@ export default async function LoginPage({
 }) {
   const { next } = await searchParams;
   const nextPath = next?.startsWith("/") && !next.startsWith("//") ? next : "/";
+  const siteSettings = await getSiteSettings();
 
   return (
     <main className="grid min-h-screen place-items-center px-4 py-8">
@@ -18,7 +20,7 @@ export default async function LoginPage({
           返回工作台
         </Link>
         <h1 className="text-2xl font-bold">登录 Your English Coach</h1>
-        <LoginForm nextPath={nextPath} />
+        <LoginForm nextPath={nextPath} allowSignup={siteSettings.allowPublicSignup} />
       </section>
     </main>
   );

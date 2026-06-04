@@ -154,6 +154,13 @@ create table public.admin_import_jobs (
   updated_at timestamptz not null default now()
 );
 
+create table public.site_settings (
+  key text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_by uuid references public.profiles(id),
+  updated_at timestamptz not null default now()
+);
+
 alter table public.profiles enable row level security;
 alter table public.series enable row level security;
 alter table public.episodes enable row level security;
@@ -164,6 +171,7 @@ alter table public.study_plans enable row level security;
 alter table public.repeat_attempts enable row level security;
 alter table public.vocab_items enable row level security;
 alter table public.admin_import_jobs enable row level security;
+alter table public.site_settings enable row level security;
 
 grant usage on schema public to anon, authenticated, service_role;
 
@@ -183,6 +191,7 @@ grant select, insert, update, delete on public.series to authenticated;
 grant select, insert, update, delete on public.episodes to authenticated;
 grant select, insert, update, delete on public.subtitle_lines to authenticated;
 grant select, insert, update, delete on public.admin_import_jobs to authenticated;
+grant select, insert, update, delete on public.site_settings to authenticated;
 
 grant all privileges on public.profiles to service_role;
 grant all privileges on public.series to service_role;
@@ -194,6 +203,7 @@ grant all privileges on public.study_plans to service_role;
 grant all privileges on public.repeat_attempts to service_role;
 grant all privileges on public.vocab_items to service_role;
 grant all privileges on public.admin_import_jobs to service_role;
+grant all privileges on public.site_settings to service_role;
 
 create policy "profiles read own" on public.profiles
   for select using (auth.uid() = id);
@@ -261,4 +271,7 @@ create policy "admins manage subtitle lines" on public.subtitle_lines
   for all using (public.is_admin()) with check (public.is_admin());
 
 create policy "admins manage import jobs" on public.admin_import_jobs
+  for all using (public.is_admin()) with check (public.is_admin());
+
+create policy "admins manage site settings" on public.site_settings
   for all using (public.is_admin()) with check (public.is_admin());

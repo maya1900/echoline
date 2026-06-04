@@ -98,3 +98,25 @@ export type AdminImportJob = {
   result: string;
   createdAt: string;
 };
+
+export type AdminUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: "user" | "admin";
+  createdAt: string;
+  lastSignInAt: string;
+};
+
+export type SiteSettings = {
+  appName: string;
+  workspaceSubtitle: string;
+  defaultDailyMinutes: number;
+  defaultDailyLines: number;
+  defaultDailyRepeats: number;
+  aiScoringEnabled: boolean;
+  dictionaryAiEnabled: boolean;
+  dictionaryProvider: string;
+  dictionaryModel: string;
+  allowPublicSignup: boolean;
+};

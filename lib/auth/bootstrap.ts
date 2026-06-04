@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import { getSiteSettings } from "@/lib/admin-data";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function bootstrapUserProfile(user: User) {
@@ -14,11 +15,13 @@ export async function bootstrapUserProfile(user: User) {
     display_name: user.user_metadata?.display_name ?? user.email?.split("@")[0] ?? "Learner"
   });
 
+  const siteSettings = await getSiteSettings();
+
   await supabase.from("study_plans").upsert({
     user_id: user.id,
-    daily_minutes: 25,
-    daily_lines: 18,
-    daily_repeats: 8,
+    daily_minutes: siteSettings.defaultDailyMinutes,
+    daily_lines: siteSettings.defaultDailyLines,
+    daily_repeats: siteSettings.defaultDailyRepeats,
     active: true
   });
 }
