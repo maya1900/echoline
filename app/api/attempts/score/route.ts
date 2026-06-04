@@ -69,6 +69,31 @@ function extensionForAudio(file: File) {
   return "webm";
 }
 
+async function ensureRecordingBucket(bucket: string) {
+  const adminClient = createSupabaseAdminClient();
+
+  if (!adminClient) {
+    return null;
+  }
+
+  const { data } = await adminClient.storage.getBucket(bucket);
+
+  if (data) {
+    return adminClient;
+  }
+
+  const { error } = await adminClient.storage.createBucket(bucket, {
+    public: false,
+    fileSizeLimit: `${maxRecordingBytes}`
+  });
+
+  if (error && !/already exists/i.test(error.message)) {
+    throw new Error(error.message);
+  }
+
+  return adminClient;
+}
+
 async function saveRecording(input: ScoreInput, userId: string, supabase: NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>) {
   if (!input.audioFile) {
     return input.audioUrl || null;
@@ -80,13 +105,17 @@ async function saveRecording(input: ScoreInput, userId: string, supabase: NonNul
 
   const bucket = process.env.RECORDINGS_BUCKET ?? "recordings";
   const path = `${userId}/${input.episodeId}/${input.subtitleLineId}/${Date.now()}-${crypto.randomUUID()}.${extensionForAudio(input.audioFile)}`;
-  const storageClient = createSupabaseAdminClient() ?? supabase;
+  const storageClient = (await ensureRecordingBucket(bucket)) ?? supabase;
   const { error } = await storageClient.storage.from(bucket).upload(path, input.audioFile, {
     contentType: input.audioFile.type || "audio/webm",
     upsert: false
   });
 
   if (error) {
+    if (/bucket not found/i.test(error.message)) {
+      return null;
+    }
+
     throw new Error(error.message);
   }
 

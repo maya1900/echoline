@@ -566,6 +566,21 @@ export function LearningStudio({
               <div>
                 <h2 className="font-bold">{mode === "repeat" ? "跟读录音" : "接下一句录音"}</h2>
                 <p className="text-sm text-[color:var(--muted)]">V1 只评估内容准确度和完整度，不展示发音或流利度分。</p>
+                {isRecording ? (
+                  <div className="mt-3 flex items-center gap-3 text-sm font-semibold text-[color:var(--red)]">
+                    <span className="relative flex h-3 w-3">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[color:var(--red)] opacity-50" />
+                      <span className="relative inline-flex h-3 w-3 rounded-full bg-[color:var(--red)]" />
+                    </span>
+                    <span>录音中</span>
+                    <span className="flex h-5 items-end gap-0.5" aria-hidden="true">
+                      <span className="recording-bar h-2 w-1 rounded-full bg-[color:var(--red)]" />
+                      <span className="recording-bar h-4 w-1 rounded-full bg-[color:var(--red)] [animation-delay:120ms]" />
+                      <span className="recording-bar h-3 w-1 rounded-full bg-[color:var(--red)] [animation-delay:240ms]" />
+                      <span className="recording-bar h-5 w-1 rounded-full bg-[color:var(--red)] [animation-delay:360ms]" />
+                    </span>
+                  </div>
+                ) : null}
               </div>
               <div className="flex gap-2">
                 <button
@@ -592,10 +607,14 @@ export function LearningStudio({
                     void startRecording();
                   }}
                   disabled={isSubmittingAttempt}
-                  className={cn("flex h-11 min-w-36 items-center justify-center gap-2 rounded-md px-4 font-semibold text-white", isRecording ? "bg-[color:var(--red)]" : "bg-[color:var(--green)]")}
+                  className={cn(
+                    "relative flex h-11 min-w-36 items-center justify-center gap-2 overflow-hidden rounded-md px-4 font-semibold text-white transition active:scale-[0.98] disabled:cursor-wait disabled:opacity-70",
+                    isRecording ? "bg-[color:var(--red)] shadow-[0_0_0_4px_rgba(190,68,51,0.16)]" : "bg-[color:var(--green)]"
+                  )}
                 >
+                  {isRecording ? <span className="absolute inset-0 animate-pulse bg-white/10" aria-hidden="true" /> : null}
                   <Mic className="h-4 w-4" aria-hidden="true" />
-                  {isSubmittingAttempt ? "评分中" : isRecording ? "提交录音" : "开始录音"}
+                  <span className="relative">{isSubmittingAttempt ? "评分中" : isRecording ? "提交录音" : "开始录音"}</span>
                 </button>
               </div>
             </div>

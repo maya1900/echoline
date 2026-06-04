@@ -71,3 +71,19 @@ a {
   background: rgba(23, 20, 17, 0.24);
   border-radius: 99px;
 }
+
+@keyframes recording-level {
+  0%,
+  100% {
+    transform: scaleY(0.55);
+  }
+
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.recording-bar {
+  animation: recording-level 760ms ease-in-out infinite;
+  transform-origin: bottom;
+}
