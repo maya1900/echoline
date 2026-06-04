@@ -15,10 +15,6 @@ const modes: { id: LearningMode; label: string }[] = [
 ];
 
 function readSubtitleMaskSettings(episodeId: string) {
-  if (typeof window === "undefined") {
-    return { height: 11, bottom: 15 };
-  }
-
   const stored = window.localStorage.getItem(`subtitle-mask:${episodeId}`);
 
   if (!stored) {
@@ -58,8 +54,8 @@ export function LearningStudio({
   const [speed, setSpeed] = useState(0.9);
   const [loopCount, setLoopCount] = useState(3);
   const [maskBurnedSubtitles, setMaskBurnedSubtitles] = useState(true);
-  const [maskHeight, setMaskHeight] = useState(() => readSubtitleMaskSettings(episode.id).height);
-  const [maskBottom, setMaskBottom] = useState(() => readSubtitleMaskSettings(episode.id).bottom);
+  const [maskHeight, setMaskHeight] = useState(11);
+  const [maskBottom, setMaskBottom] = useState(15);
   const [isPlaying, setIsPlaying] = useState(false);
   const [mediaUrl, setMediaUrl] = useState(episode.mediaUrl);
   const [mediaError, setMediaError] = useState("");
@@ -114,6 +110,15 @@ export function LearningStudio({
       media.currentTime = current.startMs / 1000;
     }
   }, [current.startMs, mode]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      const settings = readSubtitleMaskSettings(episode.id);
+
+      setMaskHeight(settings.height);
+      setMaskBottom(settings.bottom);
+    });
+  }, [episode.id]);
 
   useEffect(() => {
     return () => {
