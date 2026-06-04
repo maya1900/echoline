@@ -47,6 +47,10 @@ export function LearningStudio({
   lines: SubtitleLine[];
 }) {
   const mediaRef = useRef<HTMLVideoElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const shouldSubmitRecordingRef = useRef(true);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
   const [mode, setMode] = useState<LearningMode>("intensive");
   const [lineIndex, setLineIndex] = useState(0);
   const [showEnglish, setShowEnglish] = useState(true);
@@ -61,6 +65,7 @@ export function LearningStudio({
   const [mediaError, setMediaError] = useState("");
   const [loopPass, setLoopPass] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
+  const [isSubmittingAttempt, setIsSubmittingAttempt] = useState(false);
   const [attempt, setAttempt] = useState<RepeatAttempt | null>(null);
   const [attemptStatus, setAttemptStatus] = useState("");
   const [lookupWord, setLookupWord] = useState<string | null>(null);
@@ -109,6 +114,14 @@ export function LearningStudio({
       media.currentTime = current.startMs / 1000;
     }
   }, [current.startMs, mode]);
+
+  useEffect(() => {
+    return () => {
+      recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
+      recorderRef.current = null;
+      stopRecordingTracks();
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -178,6 +191,8 @@ export function LearningStudio({
     setAttempt(null);
     setLookupWord(null);
     setLoopPass(0);
+    stopRecordingTracks();
+    setIsRecording(false);
     setLineIndex(nextIndex);
     seekToLine(lines[nextIndex]);
   }
@@ -260,19 +275,141 @@ export function LearningStudio({
     setVocabStatus(response?.ok ? "已收藏" : "收藏失败");
   }
 
-  async function submitRecording() {
+  function stopRecordingTracks() {
+    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+    recordingStreamRef.current = null;
+  }
+
+  function getRecordingMimeType() {
+    const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/wav"];
+
+    return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
+  }
+
+  async function startRecording() {
+    if (isSubmittingAttempt) {
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setAttemptStatus("当前浏览器不支持录音，已使用文本演示评分");
+      await submitRecording();
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = getRecordingMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+      recordingChunksRef.current = [];
+      shouldSubmitRecordingRef.current = true;
+      recordingStreamRef.current = stream;
+      recorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordingChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onerror = () => {
+        stopRecordingTracks();
+        setIsRecording(false);
+        setAttemptStatus("录音失败，请重新试一次");
+      };
+      recorder.onstop = () => {
+        const audioBlob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+
+        stopRecordingTracks();
+        recorderRef.current = null;
+        setIsRecording(false);
+
+        if (!shouldSubmitRecordingRef.current) {
+          recordingChunksRef.current = [];
+          shouldSubmitRecordingRef.current = true;
+          return;
+        }
+
+        if (audioBlob.size === 0) {
+          setAttemptStatus("没有录到声音，请重新试一次");
+          return;
+        }
+
+        void submitRecording(audioBlob);
+      };
+
+      recorder.start();
+      setAttempt(null);
+      setIsRecording(true);
+      setAttemptStatus("录音中");
+    } catch {
+      stopRecordingTracks();
+      setIsRecording(false);
+      setAttemptStatus("无法使用麦克风，请检查浏览器权限");
+    }
+  }
+
+  function stopRecording() {
+    const recorder = recorderRef.current;
+
+    if (recorder && recorder.state !== "inactive") {
+      setAttemptStatus("上传评分中");
+      recorder.stop();
+      return;
+    }
+
     setIsRecording(false);
-    setAttemptStatus("评分中");
-    const response = await fetch("/api/attempts/score", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mode,
-        targetText: current.englishText,
-        episodeId: episode.id,
-        subtitleLineId: current.id
-      })
-    }).catch(() => null);
+  }
+
+  function cancelRecording() {
+    const recorder = recorderRef.current;
+
+    shouldSubmitRecordingRef.current = false;
+
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    } else {
+      stopRecordingTracks();
+      recorderRef.current = null;
+      setIsRecording(false);
+    }
+  }
+
+  async function submitRecording(audioBlob?: Blob) {
+    setIsRecording(false);
+    setIsSubmittingAttempt(true);
+    setAttemptStatus(audioBlob ? "上传评分中" : "评分中");
+    let response: Response | null;
+
+    try {
+      if (audioBlob) {
+        const formData = new FormData();
+
+        formData.append("mode", mode);
+        formData.append("targetText", current.englishText);
+        formData.append("episodeId", episode.id);
+        formData.append("subtitleLineId", current.id);
+        formData.append("audio", audioBlob, `repeat-${current.id}.webm`);
+        response = await fetch("/api/attempts/score", {
+          method: "POST",
+          body: formData
+        }).catch(() => null);
+      } else {
+        response = await fetch("/api/attempts/score", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode,
+            targetText: current.englishText,
+            episodeId: episode.id,
+            subtitleLineId: current.id
+          })
+        }).catch(() => null);
+      }
+    } finally {
+      setIsSubmittingAttempt(false);
+    }
+
     const payload = response ? ((await response.json().catch(() => null)) as { data?: RepeatAttempt; error?: string } | null) : null;
     const nextAttempt = payload?.data;
 
@@ -283,7 +420,7 @@ export function LearningStudio({
       return;
     }
 
-    setAttemptStatus(payload?.error === "Repeat scoring service is not connected yet" ? "评分服务未接入" : "评分失败");
+    setAttemptStatus(payload?.error ?? "评分失败");
   }
 
   function updateMaskSettings(next: Partial<{ height: number; bottom: number }>) {
@@ -433,6 +570,9 @@ export function LearningStudio({
               <div className="flex gap-2">
                 <button
                   onClick={() => {
+                    if (isRecording) {
+                      cancelRecording();
+                    }
                     setAttempt(null);
                     setAttemptStatus("");
                   }}
@@ -444,17 +584,18 @@ export function LearningStudio({
                 <button
                   onClick={() => {
                     if (isRecording) {
-                      void submitRecording();
+                      stopRecording();
                       return;
                     }
 
                     setAttemptStatus("");
-                    setIsRecording(true);
+                    void startRecording();
                   }}
+                  disabled={isSubmittingAttempt}
                   className={cn("flex h-11 min-w-36 items-center justify-center gap-2 rounded-md px-4 font-semibold text-white", isRecording ? "bg-[color:var(--red)]" : "bg-[color:var(--green)]")}
                 >
                   <Mic className="h-4 w-4" aria-hidden="true" />
-                  {isRecording ? "提交录音" : "开始录音"}
+                  {isSubmittingAttempt ? "评分中" : isRecording ? "提交录音" : "开始录音"}
                 </button>
               </div>
             </div>
