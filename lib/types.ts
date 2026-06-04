@@ -121,3 +121,13 @@ export type SiteSettings = {
   dictionaryApiKeyConfigured: boolean;
   allowPublicSignup: boolean;
 };
+
+export type UserSettings = {
+  subtitleLanguage: "both" | "english" | "chinese";
+  defaultPlaybackRate: number;
+  autoLoop: boolean;
+  aiScoringEnabled: boolean;
+  asrProvider: string;
+  asrModel: string;
+  asrApiKeyConfigured: boolean;
+};

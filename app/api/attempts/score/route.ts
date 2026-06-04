@@ -3,6 +3,7 @@ import { transcribeRecording } from "@/lib/asr";
 import { scoreRepeatAttempt } from "@/lib/scoring/text";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAsrSettingsForUser } from "@/lib/user-settings";
 
 const allowedModes = new Set(["repeat", "call_response"]);
 const maxRecordingBytes = 15 * 1024 * 1024;
@@ -143,11 +144,13 @@ export async function POST(request: Request) {
   }
 
   const mode = allowedModes.has(input.mode) ? input.mode : "repeat";
+  const asrSettings = await getAsrSettingsForUser(user.id);
   const asrTranscript = input.transcript.trim()
     ? undefined
     : await transcribeRecording({
         file: input.audioFile,
-        targetText: input.targetText
+        targetText: input.targetText,
+        settings: asrSettings
       });
   const transcript = input.transcript.trim() || asrTranscript || "";
   const fallbackTranscript = transcript.length === 0;

@@ -1,22 +1,16 @@
 type TranscribeInput = {
   file: File;
   prompt?: string;
+  apiKey: string;
+  model: string;
 };
 
 type TranscriptionResponse = {
   text?: string;
 };
 
-function getOpenAiAsrConfig() {
-  return {
-    apiKey: process.env.OPENAI_API_KEY ?? "",
-    model: process.env.ASR_MODEL ?? "gpt-4o-mini-transcribe",
-    baseUrl: process.env.OPENAI_TRANSCRIPTION_BASE_URL ?? "https://api.openai.com/v1/audio/transcriptions"
-  };
-}
-
-export async function transcribeWithOpenAi({ file, prompt }: TranscribeInput) {
-  const { apiKey, baseUrl, model } = getOpenAiAsrConfig();
+export async function transcribeWithOpenAi({ file, prompt, apiKey, model }: TranscribeInput) {
+  const baseUrl = process.env.OPENAI_TRANSCRIPTION_BASE_URL ?? "https://api.openai.com/v1/audio/transcriptions";
 
   if (!apiKey) {
     return undefined;

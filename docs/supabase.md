@@ -57,7 +57,7 @@ recordings
 
 ## 录音转写
 
-`POST /api/attempts/score` 上传录音后，会在服务端尝试用 ASR Provider 生成 `transcript`。目前支持 OpenAI：
+`POST /api/attempts/score` 上传录音后，会读取当前登录用户在 `/settings` 的 AI 评分配置，并尝试用 ASR Provider 生成 `transcript`。目前支持 OpenAI：
 
 ```bash
 ASR_PROVIDER=openai
@@ -65,7 +65,16 @@ OPENAI_API_KEY=sk-...
 ASR_MODEL=gpt-4o-mini-transcribe
 ```
 
-未配置 `OPENAI_API_KEY` 时，接口仍会保存录音并使用文本 fallback 完成评分演示。
+也可以不写环境变量，直接在设置页填写当前用户自己的 OpenAI API Key。未配置 API Key 时，接口仍会保存录音并使用文本 fallback 完成评分演示。
+
+现有 Supabase 项目需要给 `profiles` 补充 ASR 字段：
+
+```sql
+alter table public.profiles
+  add column if not exists asr_provider text not null default 'openai',
+  add column if not exists asr_model text not null default 'gpt-4o-mini-transcribe',
+  add column if not exists asr_api_key text;
+```
 
 ## 下一步
 

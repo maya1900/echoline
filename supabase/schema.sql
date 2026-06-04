@@ -12,6 +12,9 @@ create table public.profiles (
   default_playback_rate numeric(3,2) not null default 1.00,
   auto_loop boolean not null default true,
   ai_scoring_enabled boolean not null default true,
+  asr_provider text not null default 'openai',
+  asr_model text not null default 'gpt-4o-mini-transcribe',
+  asr_api_key text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
