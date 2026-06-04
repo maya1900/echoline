@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BookOpenCheck,
   Database,
@@ -143,12 +143,6 @@ export function AdminWorkbench({
   const adminCount = users.filter((user) => user.role === "admin").length;
   const latestJob = jobs[0];
 
-  useEffect(() => {
-    if (activeModule === "imports" && activePanel === "editor" && editorEpisodeId) {
-      void loadSubtitleLines(editorEpisodeId);
-    }
-  }, [activeModule, activePanel, editorEpisodeId]);
-
   function updateEpisodeSeries(seriesId: string) {
     const targetSeries = series.find((item) => item.id === seriesId);
     setEpisodeForm((current) => ({
@@ -255,7 +249,19 @@ export function AdminWorkbench({
     }
   }
 
-  async function loadSubtitleLines(episodeId: string) {
+  const selectSubtitleLine = useCallback((line: SubtitleLine) => {
+    setSelectedLineId(line.id);
+    setLineForm({
+      englishText: line.englishText,
+      chineseText: line.chineseText,
+      startMs: line.startMs,
+      endMs: line.endMs,
+      difficulty: line.difficulty || "B1",
+      keywords: line.keywords.join(", ")
+    });
+  }, []);
+
+  const loadSubtitleLines = useCallback(async (episodeId: string) => {
     setMessage("读取字幕中");
     const response = await fetch(`/api/episodes/${episodeId}/subtitles`).catch(() => null);
     const payload = response ? ((await response.json().catch(() => null)) as { data?: SubtitleLine[] } | null) : null;
@@ -269,19 +275,15 @@ export function AdminWorkbench({
       setSelectedLineId("");
       setMessage("当前集数还没有字幕");
     }
-  }
+  }, [selectSubtitleLine]);
 
-  function selectSubtitleLine(line: SubtitleLine) {
-    setSelectedLineId(line.id);
-    setLineForm({
-      englishText: line.englishText,
-      chineseText: line.chineseText,
-      startMs: line.startMs,
-      endMs: line.endMs,
-      difficulty: line.difficulty || "B1",
-      keywords: line.keywords.join(", ")
-    });
-  }
+  useEffect(() => {
+    if (activeModule === "imports" && activePanel === "editor" && editorEpisodeId) {
+      queueMicrotask(() => {
+        void loadSubtitleLines(editorEpisodeId);
+      });
+    }
+  }, [activeModule, activePanel, editorEpisodeId, loadSubtitleLines]);
 
   async function saveSubtitleLine(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

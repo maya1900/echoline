@@ -14,6 +14,29 @@ const modes: { id: LearningMode; label: string }[] = [
   { id: "call_response", label: "接下一句" }
 ];
 
+function readSubtitleMaskSettings(episodeId: string) {
+  if (typeof window === "undefined") {
+    return { height: 11, bottom: 15 };
+  }
+
+  const stored = window.localStorage.getItem(`subtitle-mask:${episodeId}`);
+
+  if (!stored) {
+    return { height: 11, bottom: 15 };
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as Partial<{ height: number; bottom: number }>;
+
+    return {
+      height: typeof parsed.height === "number" ? parsed.height : 11,
+      bottom: typeof parsed.bottom === "number" ? parsed.bottom : 15
+    };
+  } catch {
+    return { height: 11, bottom: 15 };
+  }
+}
+
 export function LearningStudio({
   episode,
   parentSeries,
@@ -31,8 +54,8 @@ export function LearningStudio({
   const [speed, setSpeed] = useState(0.9);
   const [loopCount, setLoopCount] = useState(3);
   const [maskBurnedSubtitles, setMaskBurnedSubtitles] = useState(true);
-  const [maskHeight, setMaskHeight] = useState(11);
-  const [maskBottom, setMaskBottom] = useState(15);
+  const [maskHeight, setMaskHeight] = useState(() => readSubtitleMaskSettings(episode.id).height);
+  const [maskBottom, setMaskBottom] = useState(() => readSubtitleMaskSettings(episode.id).bottom);
   const [isPlaying, setIsPlaying] = useState(false);
   const [mediaUrl, setMediaUrl] = useState(episode.mediaUrl);
   const [mediaError, setMediaError] = useState("");
@@ -47,8 +70,6 @@ export function LearningStudio({
 
   const current = lines[lineIndex] ?? lines[0];
   const previous = lines[lineIndex - 1];
-  const next = lines[lineIndex + 1];
-
   const visibleLine = useMemo(() => {
     if (mode === "call_response" && !attempt) {
       return previous ?? current;
@@ -82,26 +103,6 @@ export function LearningStudio({
   }, [speed]);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(`subtitle-mask:${episode.id}`);
-
-    if (!stored) {
-      setMaskHeight(11);
-      setMaskBottom(15);
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(stored) as Partial<{ height: number; bottom: number }>;
-      setMaskHeight(typeof parsed.height === "number" ? parsed.height : 11);
-      setMaskBottom(typeof parsed.bottom === "number" ? parsed.bottom : 15);
-    } catch {
-      setMaskHeight(11);
-      setMaskBottom(15);
-    }
-  }, [episode.id]);
-
-  useEffect(() => {
-    setLoopPass(0);
     const media = mediaRef.current;
 
     if (media && mode !== "rough") {
@@ -176,6 +177,7 @@ export function LearningStudio({
     }
     setAttempt(null);
     setLookupWord(null);
+    setLoopPass(0);
     setLineIndex(nextIndex);
     seekToLine(lines[nextIndex]);
   }
