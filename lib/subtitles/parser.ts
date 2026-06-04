@@ -73,8 +73,8 @@ function stripCueMarkup(value: string) {
 }
 
 function splitBilingualText(rows: string[]) {
-  const englishRows = rows.filter((row) => latinPattern.test(row));
   const chineseRows = rows.filter((row) => chinesePattern.test(row));
+  const englishRows = rows.filter((row) => latinPattern.test(row) && !chinesePattern.test(row));
 
   return {
     englishText: englishRows.join(" ").replace(/\s+/g, " ").trim(),
