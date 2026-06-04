@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { transcribeRecording } from "@/lib/asr";
 import { scoreRepeatAttempt } from "@/lib/scoring/text";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -113,10 +114,17 @@ export async function POST(request: Request) {
   }
 
   const mode = allowedModes.has(input.mode) ? input.mode : "repeat";
-  const fallbackTranscript = input.transcript.trim().length === 0;
+  const asrTranscript = input.transcript.trim()
+    ? undefined
+    : await transcribeRecording({
+        file: input.audioFile,
+        targetText: input.targetText
+      });
+  const transcript = input.transcript.trim() || asrTranscript || "";
+  const fallbackTranscript = transcript.length === 0;
   const attempt = scoreRepeatAttempt({
     targetText: input.targetText,
-    transcript: input.transcript,
+    transcript,
     fallbackTranscript
   });
   let audioUrl: string | null = null;

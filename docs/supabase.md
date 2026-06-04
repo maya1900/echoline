@@ -21,7 +21,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 - `POST /api/admin/import-subtitles` 已支持 SRT/VTT 解析并写入 `subtitle_lines`。
 - `GET /api/episodes/:id/media-url` 已支持 Supabase Storage 私有文件签名 URL。
 - `POST /api/attempts/score` 已支持 JSON 文本评分和 `multipart/form-data` 录音上传，录音路径写入 `repeat_attempts.audio_url`。
-- 评分当前仍是 V1 文本 fallback：只返回转写、准确度、完整度、漏词、总分和中文短反馈，`fluency` 不写分数；真实 ASR 接入后替换转写来源。
+- 评分当前会优先用已提交文本或 OpenAI ASR 转写录音，再走 V1 文本评分 fallback；只返回转写、准确度、完整度、漏词、总分和中文短反馈，`fluency` 不写分数。
 
 ## 字幕导入
 
@@ -55,8 +55,19 @@ recordings
 
 服务端优先使用 `SUPABASE_SERVICE_ROLE_KEY` 上传录音；没有 service role 时会尝试使用当前登录用户的 Supabase session，需自行配置对应 Storage policy。
 
+## 录音转写
+
+`POST /api/attempts/score` 上传录音后，会在服务端尝试用 ASR Provider 生成 `transcript`。目前支持 OpenAI：
+
+```bash
+ASR_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+ASR_MODEL=gpt-4o-mini-transcribe
+```
+
+未配置 `OPENAI_API_KEY` 时，接口仍会保存录音并使用文本 fallback 完成评分演示。
+
 ## 下一步
 
-- 接入真实 ASR Provider 转写录音。
 - 管理页补媒体文件上传流程。
 - 增加端到端冒烟检查。
