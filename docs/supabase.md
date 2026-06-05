@@ -102,6 +102,57 @@ AI 查词的 Provider、模型和 API Key 以 `/admin` 后台保存到 `site_set
 
 本地词典未命中时，只有后台开启“启用 AI 中文释义”且“查词 API Key”已保存，才会调用 AI 兜底。`DICTIONARY_AI_BASE_URL` 只作为开发调试时的底层 endpoint 覆盖，不负责选择查词供应商、模型或密钥。
 
+## Linux.do OAuth/OIDC
+
+项目登录页使用 Supabase Custom OIDC Provider 接入 Linux.do，Provider identifier 约定为：
+
+```text
+custom:linuxdo
+```
+
+Linux.do 创建 OAuth2/OIDC 应用时填写：
+
+```text
+应用名：your-english-coach
+应用主页：http://localhost:3000
+应用描述：看剧学英语
+回调地址：https://<SUPABASE_PROJECT_REF>.supabase.co/auth/v1/callback
+应用图标：可留空，或填写公开可访问的 logo URL
+```
+
+如果部署到正式域名，应用主页改为正式站点 URL；回调地址仍使用 Supabase Auth callback。Supabase Auth 会在回调后再跳回本项目 `/auth/callback`。
+
+Linux.do 返回后，在 Supabase Dashboard 的 Authentication Provider 中新增 Custom OIDC Provider：
+
+```text
+Name：Linux.do
+Identifier：linuxdo
+Client ID：Linux.do 返回的 Client ID
+Client Secret：Linux.do 返回的 Client Secret
+Issuer URL：https://connect.linux.do/
+Authorization endpoint：https://connect.linux.do/oauth2/authorize
+Token endpoint：https://connect.linux.do/oauth2/token
+Userinfo endpoint：https://connect.linux.do/api/user
+Scopes：openid, profile, email
+```
+
+同时在 Supabase Auth 的 Redirect URLs 里加入：
+
+```text
+http://localhost:3000/auth/callback
+http://localhost:3000/**
+https://<YOUR_DOMAIN>/auth/callback
+https://<YOUR_DOMAIN>/**
+```
+
+如果 Dashboard 需要 Discovery URL，填写：
+
+```text
+https://connect.linux.do/.well-known/openid-configuration
+```
+
+项目侧不保存 Client Secret。登录成功后，Supabase 会创建/返回当前用户 session，`/auth/callback` 会调用 `bootstrapUserProfile` 写入 `profiles` 和默认 `study_plans`。当前项目只依赖 Supabase `user.id`、`user.email` 和 `user.user_metadata.display_name`。
+
 ## 下一步
 
 - 管理页补媒体文件上传流程。

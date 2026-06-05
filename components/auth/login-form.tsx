@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound, Loader2, Mail } from "lucide-react";
+import type { Provider } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { cn } from "@/lib/utils";
 
 type Mode = "login" | "signup";
+const linuxDoProvider = "custom:linuxdo" satisfies Provider;
 
 export function LoginForm({ nextPath = "/", allowSignup = true }: { nextPath?: string; allowSignup?: boolean }) {
   const router = useRouter();
@@ -67,6 +69,30 @@ export function LoginForm({ nextPath = "/", allowSignup = true }: { nextPath?: s
     router.refresh();
   }
 
+  async function handleLinuxDoLogin() {
+    if (!supabase) {
+      setMessage("填好 .env.local 后即可启用 Supabase Auth。");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setMessage("");
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: linuxDoProvider,
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+        scopes: "openid profile email"
+      }
+    });
+
+    setIsSubmitting(false);
+
+    if (error) {
+      setMessage(error.message);
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit} className="mt-6 grid gap-3">
       <div className={cn("grid gap-2 rounded-md border border-[color:var(--line)] bg-white/50 p-1", allowSignup ? "grid-cols-2" : "grid-cols-1")}>
@@ -93,9 +119,14 @@ export function LoginForm({ nextPath = "/", allowSignup = true }: { nextPath?: s
         {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Mail className="h-4 w-4" aria-hidden="true" />}
         {mode === "login" ? "登录" : "创建账号"}
       </button>
-      <button type="button" disabled className="flex h-11 items-center justify-center gap-2 rounded-md border border-[color:var(--line)] text-sm font-semibold text-[color:var(--muted)]">
+      <button
+        type="button"
+        onClick={() => void handleLinuxDoLogin()}
+        disabled={isSubmitting || !supabase}
+        className="flex h-11 items-center justify-center gap-2 rounded-md border border-[color:var(--line)] bg-white/55 text-sm font-semibold transition hover:border-[color:var(--ink)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+      >
         <KeyRound className="h-4 w-4" aria-hidden="true" />
-        OAuth 预留
+        使用 Linux.do 登录
       </button>
       {message ? <p className="rounded-md border border-[color:var(--line)] bg-white/60 p-3 text-sm leading-6 text-[color:var(--muted)]">{message}</p> : null}
     </form>

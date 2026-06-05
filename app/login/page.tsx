@@ -6,9 +6,9 @@ import { getSiteSettings } from "@/lib/admin-data";
 export default async function LoginPage({
   searchParams
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
-  const { next } = await searchParams;
+  const { error, next } = await searchParams;
   const nextPath = next?.startsWith("/") && !next.startsWith("//") ? next : "/";
   const siteSettings = await getSiteSettings();
 
@@ -20,6 +20,7 @@ export default async function LoginPage({
           返回工作台
         </Link>
         <h1 className="text-2xl font-bold">登录 Your English Coach</h1>
+        {error ? <p className="mt-4 rounded-md border border-[color:var(--red)] bg-white/70 p-3 text-sm leading-6 text-[color:var(--red)]">{error}</p> : null}
         <LoginForm nextPath={nextPath} allowSignup={siteSettings.allowPublicSignup} />
       </section>
     </main>
