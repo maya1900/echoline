@@ -9,13 +9,13 @@ type RoleUpdate = {
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = (await request.json().catch(() => ({}))) as RoleUpdate;
   const admin = await requireAdminRequest();
 
   if (admin.error) {
     return admin.error;
   }
 
+  const body = (await request.json().catch(() => ({}))) as RoleUpdate;
   const supabaseAdmin = createSupabaseAdminClient();
 
   if (!supabaseAdmin) {

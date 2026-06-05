@@ -3,12 +3,13 @@ import { requireAdminRequest } from "@/lib/auth/api";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
   const admin = await requireAdminRequest();
 
   if (admin.error) {
     return admin.error;
   }
+
+  const body = await request.json().catch(() => ({}));
 
   const { data, error } = await admin.supabase
     .from("subtitle_lines")

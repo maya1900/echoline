@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import { requireAdminRequest } from "@/lib/auth/api";
 
 export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({}));
   const admin = await requireAdminRequest();
 
   if (admin.error) {
     return admin.error;
   }
+
+  const body = await request.json().catch(() => ({}));
 
   const { data, error } = await admin.supabase
     .from("series")

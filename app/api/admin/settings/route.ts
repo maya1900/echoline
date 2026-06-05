@@ -16,13 +16,13 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const admin = await requireAdminRequest();
 
   if (admin.error) {
     return admin.error;
   }
 
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const supabaseAdmin = createSupabaseAdminClient();
 
   if (!supabaseAdmin) {
