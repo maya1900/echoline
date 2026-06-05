@@ -9,6 +9,12 @@ type SubtitleImportInput = {
 };
 
 export async function POST(request: Request) {
+  const admin = await requireAdminRequest();
+
+  if (admin.error) {
+    return admin.error;
+  }
+
   const input = await readSubtitleImportInput(request);
   const lines = parseSubtitleText(input.subtitleText);
 
@@ -18,12 +24,6 @@ export async function POST(request: Request) {
 
   if (lines.length === 0) {
     return NextResponse.json({ error: "No subtitle cues parsed" }, { status: 400 });
-  }
-
-  const admin = await requireAdminRequest();
-
-  if (admin.error) {
-    return admin.error;
   }
 
   const { data: job, error: jobError } = await admin.supabase
