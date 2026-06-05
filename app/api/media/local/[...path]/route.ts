@@ -3,7 +3,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireUserRequest } from "@/lib/auth/api";
 
 export const runtime = "nodejs";
 
@@ -52,23 +52,11 @@ function parseRangeHeader(rangeHeader: string | null, size: number) {
   return { start, end: Math.min(end, size - 1) };
 }
 
-async function requireUser() {
-  const supabase = await createSupabaseServerClient();
-
-  if (!supabase) {
-    return false;
-  }
-
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  return Boolean(user);
-}
-
 export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
-  if (!(await requireUser())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireUserRequest();
+
+  if (auth.error) {
+    return auth.error;
   }
 
   const { path: requestedPath } = await params;
