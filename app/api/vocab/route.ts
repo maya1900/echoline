@@ -10,10 +10,15 @@ type VocabRow = {
   context_sentence: string | null;
   status: "new" | "learning" | "mastered";
   review_count: number;
+  ease: number;
+  interval_days: number;
   due_at: string | null;
+  last_reviewed_at: string | null;
 };
 
 function serializeVocab(row: VocabRow) {
+  const dueDate = row.due_at ? new Date(row.due_at) : null;
+
   return {
     id: row.id,
     word: row.word,
@@ -22,7 +27,12 @@ function serializeVocab(row: VocabRow) {
     contextSentence: row.context_sentence ?? "",
     status: row.status,
     reviewCount: row.review_count,
-    dueAt: row.due_at ?? "今天"
+    dueAt: dueDate ? new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric" }).format(dueDate) : "今天",
+    dueAtIso: row.due_at,
+    isDue: !dueDate || dueDate.getTime() <= Date.now(),
+    ease: Number(row.ease ?? 2.5),
+    intervalDays: row.interval_days ?? 0,
+    lastReviewedAt: row.last_reviewed_at
   };
 }
 
@@ -67,7 +77,7 @@ export async function POST(request: Request) {
       subtitle_line_id: body.subtitleLineId,
       due_at: new Date().toISOString()
     })
-    .select("id,word,phonetic,translation,context_sentence,status,review_count,due_at")
+    .select("id,word,phonetic,translation,context_sentence,status,review_count,ease,interval_days,due_at,last_reviewed_at")
     .single();
 
   if (error || !data) {

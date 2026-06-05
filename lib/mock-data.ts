@@ -103,8 +103,19 @@ export const series: Series[] =
 
 export const subtitleLines: SubtitleLine[] = localMock.lines;
 
+function makeVocabItem(item: Omit<VocabItem, "dueAtIso" | "isDue" | "ease" | "intervalDays" | "lastReviewedAt"> & Partial<Pick<VocabItem, "dueAtIso" | "isDue" | "ease" | "intervalDays" | "lastReviewedAt">>): VocabItem {
+  return {
+    dueAtIso: null,
+    isDue: item.dueAt === "今天",
+    ease: 2.5,
+    intervalDays: item.status === "mastered" ? 7 : item.reviewCount > 0 ? 1 : 0,
+    lastReviewedAt: null,
+    ...item
+  };
+}
+
 export const vocabItems: VocabItem[] = [
-  {
+  makeVocabItem({
     id: "vocab-average",
     word: "average",
     phonetic: "/ˈævərɪdʒ/",
@@ -113,8 +124,8 @@ export const vocabItems: VocabItem[] = [
     status: "learning",
     reviewCount: 2,
     dueAt: "今天"
-  },
-  {
+  }),
+  makeVocabItem({
     id: "vocab-major",
     word: "major",
     phonetic: "/ˈmeɪdʒər/",
@@ -123,8 +134,8 @@ export const vocabItems: VocabItem[] = [
     status: "new",
     reviewCount: 0,
     dueAt: "今天"
-  },
-  {
+  }),
+  makeVocabItem({
     id: "vocab-respect",
     word: "respect",
     phonetic: "/rɪˈspekt/",
@@ -133,13 +144,13 @@ export const vocabItems: VocabItem[] = [
     status: "mastered",
     reviewCount: 5,
     dueAt: "6 月 10 日"
-  }
+  })
 ];
 
 export const dictionary = new Map<string, DictionaryEntry>(
   [
     ...vocabItems,
-    {
+    makeVocabItem({
       id: "dict-right",
       word: "right",
       phonetic: "/raɪt/",
@@ -148,8 +159,8 @@ export const dictionary = new Map<string, DictionaryEntry>(
       status: "new" as const,
       reviewCount: 0,
       dueAt: "今天"
-    },
-    {
+    }),
+    makeVocabItem({
       id: "dict-back",
       word: "back",
       phonetic: "/bæk/",
@@ -158,8 +169,8 @@ export const dictionary = new Map<string, DictionaryEntry>(
       status: "new" as const,
       reviewCount: 0,
       dueAt: "今天"
-    },
-    {
+    }),
+    makeVocabItem({
       id: "dict-sure",
       word: "sure",
       phonetic: "/ʃʊr/",
@@ -168,8 +179,8 @@ export const dictionary = new Map<string, DictionaryEntry>(
       status: "new" as const,
       reviewCount: 0,
       dueAt: "今天"
-    },
-    {
+    }),
+    makeVocabItem({
       id: "dict-looking",
       word: "looking",
       phonetic: "/ˈlʊkɪŋ/",
@@ -178,8 +189,8 @@ export const dictionary = new Map<string, DictionaryEntry>(
       status: "new" as const,
       reviewCount: 0,
       dueAt: "今天"
-    },
-    {
+    }),
+    makeVocabItem({
       id: "dict-someone",
       word: "someone",
       phonetic: "/ˈsʌmwʌn/",
@@ -188,8 +199,8 @@ export const dictionary = new Map<string, DictionaryEntry>(
       status: "new" as const,
       reviewCount: 0,
       dueAt: "今天"
-    },
-    {
+    }),
+    makeVocabItem({
       id: "dict-relax",
       word: "relax",
       phonetic: "/rɪˈlæks/",
@@ -198,8 +209,8 @@ export const dictionary = new Map<string, DictionaryEntry>(
       status: "new" as const,
       reviewCount: 0,
       dueAt: "今天"
-    },
-    {
+    }),
+    makeVocabItem({
       id: "dict-musician",
       word: "musician",
       phonetic: "/mjuːˈzɪʃən/",
@@ -208,8 +219,8 @@ export const dictionary = new Map<string, DictionaryEntry>(
       status: "new" as const,
       reviewCount: 0,
       dueAt: "明天"
-    },
-    {
+    }),
+    makeVocabItem({
       id: "dict-girlfriend",
       word: "girlfriend",
       phonetic: "/ˈɡɜːrlfrend/",
@@ -218,7 +229,7 @@ export const dictionary = new Map<string, DictionaryEntry>(
       status: "new" as const,
       reviewCount: 0,
       dueAt: "明天"
-    }
+    })
   ].map((item) => [
     item.word,
     {

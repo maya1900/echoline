@@ -69,6 +69,11 @@ export type VocabItem = {
   status: "new" | "learning" | "mastered";
   reviewCount: number;
   dueAt: string;
+  dueAtIso: string | null;
+  isDue: boolean;
+  ease: number;
+  intervalDays: number;
+  lastReviewedAt: string | null;
 };
 
 export type DictionaryEntry = {
