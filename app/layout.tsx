@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { RouteLoadingIndicator } from "@/components/route-loading-indicator";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +14,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <RouteLoadingIndicator />
+        {children}
+      </body>
     </html>
   );
 }
