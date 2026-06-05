@@ -16,20 +16,22 @@ export const defaultUserSettings: UserSettings = {
   defaultPlaybackRate: 1,
   autoLoop: true,
   aiScoringEnabled: true,
-  asrProvider: process.env.ASR_PROVIDER ?? "openai",
-  asrModel: process.env.ASR_MODEL ?? "gpt-4o-mini-transcribe",
-  asrApiKeyConfigured: Boolean(process.env.OPENAI_API_KEY)
+  asrProvider: readAsrProvider(process.env.ASR_PROVIDER),
+  asrModel: process.env.ASR_MODEL ?? defaultAsrModel(readAsrProvider(process.env.ASR_PROVIDER)),
+  asrApiKeyConfigured: Boolean(readAsrEnvironmentApiKey(readAsrProvider(process.env.ASR_PROVIDER)))
 };
 
 export function normalizeUserSettings(row: Partial<ProfileSettingsRow> | null | undefined): UserSettings {
+  const asrProvider = readAsrProvider(row?.asr_provider);
+
   return {
     subtitleLanguage: readSubtitleLanguage(row?.subtitle_language, defaultUserSettings.subtitleLanguage),
     defaultPlaybackRate: readNumber(row?.default_playback_rate, defaultUserSettings.defaultPlaybackRate),
     autoLoop: readBoolean(row?.auto_loop, defaultUserSettings.autoLoop),
     aiScoringEnabled: readBoolean(row?.ai_scoring_enabled, defaultUserSettings.aiScoringEnabled),
-    asrProvider: readString(row?.asr_provider, defaultUserSettings.asrProvider),
-    asrModel: readString(row?.asr_model, defaultUserSettings.asrModel),
-    asrApiKeyConfigured: Boolean(row?.asr_api_key?.trim()) || Boolean(process.env.OPENAI_API_KEY)
+    asrProvider,
+    asrModel: readString(row?.asr_model, defaultAsrModel(asrProvider)),
+    asrApiKeyConfigured: Boolean(row?.asr_api_key?.trim()) || Boolean(readAsrEnvironmentApiKey(asrProvider))
   };
 }
 
@@ -66,9 +68,9 @@ export async function getAsrSettingsForUser(userId: string) {
 
   if (!supabase) {
     return {
-      provider: process.env.ASR_PROVIDER ?? defaultUserSettings.asrProvider,
-      model: process.env.ASR_MODEL ?? defaultUserSettings.asrModel,
-      apiKey: process.env.OPENAI_API_KEY ?? "",
+      provider: defaultUserSettings.asrProvider,
+      model: process.env.ASR_MODEL ?? defaultAsrModel(defaultUserSettings.asrProvider),
+      apiKey: readAsrEnvironmentApiKey(defaultUserSettings.asrProvider),
       enabled: defaultUserSettings.aiScoringEnabled
     };
   }
@@ -81,19 +83,37 @@ export async function getAsrSettingsForUser(userId: string) {
 
   if (error || !data) {
     return {
-      provider: process.env.ASR_PROVIDER ?? defaultUserSettings.asrProvider,
-      model: process.env.ASR_MODEL ?? defaultUserSettings.asrModel,
-      apiKey: process.env.OPENAI_API_KEY ?? "",
+      provider: defaultUserSettings.asrProvider,
+      model: process.env.ASR_MODEL ?? defaultAsrModel(defaultUserSettings.asrProvider),
+      apiKey: readAsrEnvironmentApiKey(defaultUserSettings.asrProvider),
       enabled: defaultUserSettings.aiScoringEnabled
     };
   }
 
+  const provider = readAsrProvider(data.asr_provider);
+
   return {
-    provider: readString(data.asr_provider, process.env.ASR_PROVIDER ?? defaultUserSettings.asrProvider),
-    model: readString(data.asr_model, process.env.ASR_MODEL ?? defaultUserSettings.asrModel),
-    apiKey: readString(data.asr_api_key, process.env.OPENAI_API_KEY ?? ""),
+    provider,
+    model: readString(data.asr_model, process.env.ASR_MODEL ?? defaultAsrModel(provider)),
+    apiKey: readString(data.asr_api_key, readAsrEnvironmentApiKey(provider)),
     enabled: readBoolean(data.ai_scoring_enabled, defaultUserSettings.aiScoringEnabled)
   };
+}
+
+export function defaultAsrModel(provider: string) {
+  return provider === "zhipu" ? "glm-asr-2512" : "gpt-4o-mini-transcribe";
+}
+
+export function readAsrEnvironmentApiKey(provider: string) {
+  if (provider === "zhipu") {
+    return process.env.ZHIPU_API_KEY ?? process.env.BIGMODEL_API_KEY ?? "";
+  }
+
+  return process.env.OPENAI_API_KEY ?? "";
+}
+
+function readAsrProvider(value: unknown) {
+  return value === "zhipu" ? "zhipu" : "openai";
 }
 
 function readString(value: unknown, fallback: string) {

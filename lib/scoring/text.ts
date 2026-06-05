@@ -4,6 +4,7 @@ type ScoreInput = {
   targetText: string;
   transcript?: string;
   fallbackTranscript?: boolean;
+  fallbackFeedback?: string;
 };
 
 function normalizeWords(text: string) {
@@ -62,7 +63,7 @@ function percent(value: number) {
   return Math.max(0, Math.min(100, Math.round(value * 100)));
 }
 
-export function scoreRepeatAttempt({ targetText, transcript, fallbackTranscript = false }: ScoreInput): RepeatAttempt {
+export function scoreRepeatAttempt({ targetText, transcript, fallbackTranscript = false, fallbackFeedback }: ScoreInput): RepeatAttempt {
   const targetWords = normalizeWords(targetText);
   const normalizedTranscript = transcript?.trim() || targetText;
   const transcriptWords = normalizeWords(normalizedTranscript);
@@ -85,7 +86,7 @@ export function scoreRepeatAttempt({ targetText, transcript, fallbackTranscript 
   const overall = Math.round(accuracy * 0.6 + completeness * 0.4);
   const uniqueMissedWords = Array.from(new Set(missedWords));
   const feedback = fallbackTranscript
-    ? "真实转写服务未接入，本次按目标句完成一次文本评分演示。"
+    ? (fallbackFeedback ?? "未拿到真实转写，本次按目标句完成一次文本评分演示。")
     : uniqueMissedWords.length > 0
       ? `再练一次这些词：${uniqueMissedWords.slice(0, 5).join(", ")}。`
       : "内容说全了，可以进入下一句。";

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { transcribeRecording } from "@/lib/asr";
+import { transcribeRecordingWithDiagnostics } from "@/lib/asr";
 import { scoreRepeatAttempt } from "@/lib/scoring/text";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -123,6 +123,44 @@ async function saveRecording(input: ScoreInput, userId: string, supabase: NonNul
   return `${bucket}/${path}`;
 }
 
+function getAsrFallbackFeedback({
+  hasAudioFile,
+  asrEnabled,
+  apiKey,
+  provider,
+  asrError,
+  emptyTranscript
+}: {
+  hasAudioFile: boolean;
+  asrEnabled: boolean;
+  apiKey: string;
+  provider: string;
+  asrError?: string;
+  emptyTranscript?: boolean;
+}) {
+  if (!hasAudioFile) {
+    return "没有收到录音文件，本次按目标句完成一次文本评分演示。";
+  }
+
+  if (!asrEnabled) {
+    return "跟读评分未启用，本次按目标句完成一次文本评分演示。";
+  }
+
+  if (!apiKey) {
+    return `ASR API Key 未保存或未配置（${provider}），本次按目标句完成一次文本评分演示。`;
+  }
+
+  if (emptyTranscript) {
+    return `${provider} 连接成功，但没有解析到转写文本；请检查音频格式或模型返回格式。`;
+  }
+
+  if (asrError) {
+    return `${provider} 转写失败：${asrError}`;
+  }
+
+  return `${provider} 未返回真实转写，本次按目标句完成一次文本评分演示。`;
+}
+
 export async function POST(request: Request) {
   const input = await readScoreInput(request);
   const supabase = await createSupabaseServerClient();
@@ -145,19 +183,31 @@ export async function POST(request: Request) {
 
   const mode = allowedModes.has(input.mode) ? input.mode : "repeat";
   const asrSettings = await getAsrSettingsForUser(user.id);
-  const asrTranscript = input.transcript.trim()
+  const asrResult = input.transcript.trim()
     ? undefined
-    : await transcribeRecording({
+    : await transcribeRecordingWithDiagnostics({
         file: input.audioFile,
         targetText: input.targetText,
         settings: asrSettings
       });
+  const asrTranscript = asrResult?.transcript;
   const transcript = input.transcript.trim() || asrTranscript || "";
   const fallbackTranscript = transcript.length === 0;
+  const fallbackFeedback = fallbackTranscript
+    ? getAsrFallbackFeedback({
+        hasAudioFile: Boolean(input.audioFile),
+        asrEnabled: asrSettings.enabled,
+        apiKey: asrSettings.apiKey,
+        provider: asrSettings.provider,
+        asrError: asrResult?.error,
+        emptyTranscript: asrResult?.emptyTranscript
+      })
+    : undefined;
   const attempt = scoreRepeatAttempt({
     targetText: input.targetText,
     transcript,
-    fallbackTranscript
+    fallbackTranscript,
+    fallbackFeedback
   });
   let audioUrl: string | null = null;
 

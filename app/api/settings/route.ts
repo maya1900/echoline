@@ -10,6 +10,14 @@ function readNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function isMissingProfileSettingsColumn(error: { message?: string; code?: string } | null | undefined) {
+  const message = error?.message?.toLowerCase() ?? "";
+
+  return error?.code === "PGRST204" || (message.includes("schema cache") && message.includes("profiles"));
+}
+
+const missingProfileSettingsColumnMessage = "Supabase profiles 表缺少设置字段，请在 SQL Editor 执行 supabase/patch-asr-settings.sql 后再保存。";
+
 export async function GET() {
   const settings = await getCurrentUserSettings();
   return NextResponse.json({ data: settings });
@@ -31,7 +39,12 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: currentRow } = await supabase.from("profiles").select("asr_api_key").eq("id", user.id).maybeSingle();
+  const { data: currentRow, error: currentRowError } = await supabase.from("profiles").select("asr_api_key").eq("id", user.id).maybeSingle();
+
+  if (isMissingProfileSettingsColumn(currentRowError)) {
+    return NextResponse.json({ error: missingProfileSettingsColumnMessage }, { status: 500 });
+  }
+
   const nextAsrApiKey = typeof body.asrApiKey === "string" ? body.asrApiKey.trim() : "";
   const update: Record<string, unknown> = {
     subtitle_language: readSubtitleLanguage(body.subtitleLanguage) ?? defaultUserSettings.subtitleLanguage,
@@ -52,6 +65,10 @@ export async function PATCH(request: Request) {
   const { error } = await supabase.from("profiles").update(update).eq("id", user.id);
 
   if (error) {
+    if (isMissingProfileSettingsColumn(error)) {
+      return NextResponse.json({ error: missingProfileSettingsColumnMessage }, { status: 500 });
+    }
+
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
