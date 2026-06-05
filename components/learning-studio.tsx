@@ -47,6 +47,7 @@ export function LearningStudio({
   const recordingChunksRef = useRef<Blob[]>([]);
   const shouldSubmitRecordingRef = useRef(true);
   const recordingStreamRef = useRef<MediaStream | null>(null);
+  const autoRecordLineRef = useRef<string | null>(null);
   const [mode, setMode] = useState<LearningMode>("intensive");
   const [lineIndex, setLineIndex] = useState(0);
   const [showEnglish, setShowEnglish] = useState(true);
@@ -102,6 +103,10 @@ export function LearningStudio({
       mediaRef.current.playbackRate = speed;
     }
   }, [speed]);
+
+  useEffect(() => {
+    autoRecordLineRef.current = null;
+  }, [current.id, mode]);
 
   useEffect(() => {
     const media = mediaRef.current;
@@ -196,6 +201,7 @@ export function LearningStudio({
     setAttempt(null);
     setLookupWord(null);
     setLoopPass(0);
+    autoRecordLineRef.current = null;
     stopRecordingTracks();
     setIsRecording(false);
     setLineIndex(nextIndex);
@@ -211,6 +217,7 @@ export function LearningStudio({
     }
 
     if (isPlaying) {
+      autoRecordLineRef.current = null;
       media.pause();
       return;
     }
@@ -223,6 +230,7 @@ export function LearningStudio({
     }
 
     media.playbackRate = speed;
+    autoRecordLineRef.current = mode === "repeat" ? current.id : null;
 
     try {
       await media.play();
@@ -256,6 +264,12 @@ export function LearningStudio({
     media.pause();
     setIsPlaying(false);
     void saveProgress(current, { completed: true, repeatCount: mode === "loop" ? loopCount : 0 });
+
+    if (mode === "repeat" && autoRecordLineRef.current === current.id && !isRecording && !isSubmittingAttempt) {
+      autoRecordLineRef.current = null;
+      setAttemptStatus("原句播放完，开始录音");
+      void startRecording();
+    }
   }
 
   async function saveVocab() {
@@ -515,6 +529,7 @@ export function LearningStudio({
                 <button
                   key={item.id}
                   onClick={() => {
+                    autoRecordLineRef.current = null;
                     setMode(item.id);
                     setAttempt(null);
                     setAttemptStatus("");
@@ -674,6 +689,7 @@ export function LearningStudio({
                 key={line.id}
                 onClick={() => {
                   void saveProgress(current, { completed: true });
+                  autoRecordLineRef.current = null;
                   setLineIndex(index);
                   setAttempt(null);
                   setLoopPass(0);
