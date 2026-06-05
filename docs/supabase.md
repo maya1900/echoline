@@ -19,6 +19,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 - Supabase Auth 已接入邮箱登录/注册、callback、logout，并在登录后初始化 `profiles` 与 `study_plans`。
 - `study-plan`、`vocab`、`attempts/score` 和管理员接口已尝试写真实表，失败时保留 mock 响应。
 - `POST /api/admin/import-subtitles` 已支持 SRT/VTT 解析并写入 `subtitle_lines`。
+- `POST /api/admin/media` 已支持管理员上传视频到私有 Storage，并把 `bucket/path` 回填到集数表单。
 - `GET /api/episodes/:id/media-url` 已支持 Supabase Storage 私有文件签名 URL。
 - `POST /api/attempts/score` 已支持 JSON 文本评分和 `multipart/form-data` 录音上传，录音路径写入 `repeat_attempts.audio_url`。
 - 评分当前会优先用已提交文本或 OpenAI ASR 转写录音，再走 V1 文本评分 fallback；只返回转写、准确度、完整度、漏词、总分和中文短反馈，`fluency` 不写分数。
@@ -200,5 +201,5 @@ https://connect.linux.do/.well-known/openid-configuration
 
 ## 下一步
 
-- 管理页补媒体文件上传流程。
-- 增加端到端冒烟检查。
+- 增加登录后的桌面和移动端端到端冒烟检查。
+- 部署前复核 Supabase schema/seed、环境变量、Storage bucket 和 OAuth Redirect URLs。
