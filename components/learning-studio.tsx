@@ -15,6 +15,8 @@ const modes: { id: LearningMode; label: string }[] = [
   { id: "call_response", label: "接下一句" }
 ];
 
+const repeatCompletionThreshold = 60;
+
 type MicrophoneStatus = "idle" | "checking" | "testing" | "ready" | "quiet" | "blocked" | "unsupported";
 
 function readSubtitleMaskSettings(episodeId: string) {
@@ -330,7 +332,7 @@ export function LearningStudio({
 
     media.pause();
     setIsPlaying(false);
-    if (mode !== "call_response") {
+    if (mode === "intensive" || mode === "loop") {
       void saveProgress(current, { completed: true, repeatCount: mode === "loop" ? loopCount : 0 });
     }
 
@@ -477,7 +479,7 @@ export function LearningStudio({
   async function prepareMicrophone() {
     if (!isMicrophoneSupported()) {
       setMicrophoneStatus("unsupported");
-      setMicrophoneMessage("当前浏览器不支持录音，可使用文本演示评分。");
+      setMicrophoneMessage("当前浏览器不支持录音，无法进行跟读评分。");
       setMicrophoneLevel(0);
       return false;
     }
@@ -544,8 +546,7 @@ export function LearningStudio({
     }
 
     if (!isMicrophoneSupported()) {
-      setAttemptStatus("当前浏览器不支持录音，已使用文本演示评分");
-      await submitRecording();
+      setAttemptStatus("当前浏览器不支持录音，无法进行跟读评分");
       return;
     }
 
@@ -694,10 +695,28 @@ export function LearningStudio({
     const nextAttempt = payload?.data;
 
     if (nextAttempt) {
-      setAttempt(nextAttempt);
       setMicrophoneMessage("麦克风已准备，播放完会自动录音。");
-      setAttemptStatus("");
-      void saveProgress(targetLine, { completed: true, repeatCount: 1, bestScore: nextAttempt.overall });
+
+      if (nextAttempt.scorable === false || nextAttempt.emptyTranscript) {
+        setAttempt(null);
+        setAttemptStatus(nextAttempt.reason ?? nextAttempt.feedback ?? "未获得真实转写，本次不计入完成。");
+        return;
+      }
+
+      setAttempt(nextAttempt);
+
+      const canCompleteRepeat =
+        nextAttempt.transcript.trim().length > 0 &&
+        Number.isFinite(nextAttempt.overall) &&
+        nextAttempt.overall >= repeatCompletionThreshold;
+
+      if (canCompleteRepeat) {
+        setAttemptStatus("");
+        void saveProgress(targetLine, { completed: true, repeatCount: 1, bestScore: nextAttempt.overall });
+      } else {
+        setAttemptStatus(nextAttempt.reason ?? nextAttempt.feedback ?? `分数未达到 ${repeatCompletionThreshold}，请再练一次。`);
+      }
+
       return;
     }
 

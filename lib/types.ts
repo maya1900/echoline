@@ -94,6 +94,9 @@ export type RepeatAttempt = {
   missedWords: string[];
   overall: number;
   feedback: string;
+  scorable?: boolean;
+  emptyTranscript?: boolean;
+  reason?: string;
 };
 
 export type AdminImportJob = {

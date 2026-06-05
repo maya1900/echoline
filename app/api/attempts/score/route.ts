@@ -139,26 +139,26 @@ function getAsrFallbackFeedback({
   emptyTranscript?: boolean;
 }) {
   if (!hasAudioFile) {
-    return "没有收到录音文件，本次按目标句完成一次文本评分演示。";
+    return "没有收到录音文件，本次无法评分，请重新录音。";
   }
 
   if (!asrEnabled) {
-    return "跟读评分未启用，本次按目标句完成一次文本评分演示。";
+    return "跟读评分未启用，本次不计入完成。";
   }
 
   if (!apiKey) {
-    return `ASR API Key 未保存或未配置（${provider}），本次按目标句完成一次文本评分演示。`;
+    return `ASR API Key 未保存或未配置（${provider}），本次不计入完成。`;
   }
 
   if (emptyTranscript) {
-    return `${provider} 连接成功，但没有解析到转写文本；请检查音频格式或模型返回格式。`;
+    return `${provider} 连接成功，但没有解析到转写文本；请检查音频格式或重新录音。`;
   }
 
   if (asrError) {
     return `${provider} 转写失败：${asrError}`;
   }
 
-  return `${provider} 未返回真实转写，本次按目标句完成一次文本评分演示。`;
+  return `${provider} 未返回真实转写，本次无法评分，请重新录音。`;
 }
 
 export async function POST(request: Request) {
@@ -177,21 +177,47 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!input.episodeId || !input.subtitleLineId || !input.targetText) {
+  if (!input.episodeId || !input.subtitleLineId || !input.targetText.trim()) {
     return NextResponse.json({ error: "Missing scoring input" }, { status: 400 });
+  }
+
+  if (input.transcript.trim()) {
+    return NextResponse.json({ error: "Transcript input is not accepted for scored attempts" }, { status: 400 });
+  }
+
+  const { data: subtitleLine, error: subtitleLineError } = await supabase
+    .from("subtitle_lines")
+    .select("english_text")
+    .eq("episode_id", input.episodeId)
+    .eq("id", input.subtitleLineId)
+    .maybeSingle();
+
+  if (subtitleLineError) {
+    return NextResponse.json({ error: "Failed to load subtitle line" }, { status: 500 });
+  }
+
+  if (!subtitleLine) {
+    return NextResponse.json({ error: "Subtitle line not found" }, { status: 404 });
+  }
+
+  const targetText = typeof subtitleLine.english_text === "string" ? subtitleLine.english_text : "";
+
+  if (!targetText.trim()) {
+    return NextResponse.json({ error: "Subtitle line has no English text" }, { status: 400 });
+  }
+
+  if (input.targetText.trim() !== targetText.trim()) {
+    return NextResponse.json({ error: "Target text does not match subtitle line" }, { status: 409 });
   }
 
   const mode = allowedModes.has(input.mode) ? input.mode : "repeat";
   const asrSettings = await getAsrSettingsForUser(user.id);
-  const asrResult = input.transcript.trim()
-    ? undefined
-    : await transcribeRecordingWithDiagnostics({
-        file: input.audioFile,
-        targetText: input.targetText,
-        settings: asrSettings
-      });
-  const asrTranscript = asrResult?.transcript;
-  const transcript = input.transcript.trim() || asrTranscript || "";
+  const asrResult = await transcribeRecordingWithDiagnostics({
+    file: input.audioFile,
+    targetText,
+    settings: asrSettings
+  });
+  const transcript = asrResult.transcript?.trim() ?? "";
   const fallbackTranscript = transcript.length === 0;
   const fallbackFeedback = fallbackTranscript
     ? getAsrFallbackFeedback({
@@ -199,16 +225,34 @@ export async function POST(request: Request) {
         asrEnabled: asrSettings.enabled,
         apiKey: asrSettings.apiKey,
         provider: asrSettings.provider,
-        asrError: asrResult?.error,
-        emptyTranscript: asrResult?.emptyTranscript
+        asrError: asrResult.error,
+        emptyTranscript: asrResult.emptyTranscript
       })
     : undefined;
   const attempt = scoreRepeatAttempt({
-    targetText: input.targetText,
+    targetText,
     transcript,
     fallbackTranscript,
     fallbackFeedback
   });
+
+  if (attempt.scorable === false) {
+    return NextResponse.json({
+      data: {
+        transcript: attempt.transcript,
+        accuracy: attempt.accuracy,
+        completeness: attempt.completeness,
+        audioUrl: null,
+        missedWords: attempt.missedWords,
+        overall: attempt.overall,
+        feedback: attempt.feedback,
+        scorable: attempt.scorable,
+        emptyTranscript: attempt.emptyTranscript,
+        reason: attempt.reason
+      }
+    });
+  }
+
   let audioUrl: string | null = null;
 
   try {
@@ -217,14 +261,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to save recording" }, { status: 500 });
   }
 
-  const { data, error } = await supabase
+  const { data: savedAttempt, error } = await supabase
     .from("repeat_attempts")
     .insert({
       user_id: user.id,
       episode_id: input.episodeId,
       subtitle_line_id: input.subtitleLineId,
       mode,
-      target_text: input.targetText,
+      target_text: targetText,
       transcript: attempt.transcript,
       audio_url: audioUrl,
       accuracy: attempt.accuracy,
@@ -236,19 +280,22 @@ export async function POST(request: Request) {
     .select("transcript,accuracy,completeness,overall,feedback")
     .single();
 
-  if (error || !data) {
+  if (error || !savedAttempt) {
     return NextResponse.json({ error: error?.message ?? "Failed to save repeat attempt" }, { status: 500 });
   }
 
   return NextResponse.json({
     data: {
-      transcript: data.transcript ?? attempt.transcript,
-      accuracy: data.accuracy ?? attempt.accuracy,
-      completeness: data.completeness ?? attempt.completeness,
+      transcript: savedAttempt.transcript ?? attempt.transcript,
+      accuracy: savedAttempt.accuracy ?? attempt.accuracy,
+      completeness: savedAttempt.completeness ?? attempt.completeness,
       audioUrl,
       missedWords: attempt.missedWords,
-      overall: data.overall ?? attempt.overall,
-      feedback: data.feedback ?? attempt.feedback
+      overall: savedAttempt.overall ?? attempt.overall,
+      feedback: savedAttempt.feedback ?? attempt.feedback,
+      scorable: attempt.scorable,
+      emptyTranscript: attempt.emptyTranscript,
+      reason: attempt.reason
     }
   });
 }

@@ -65,17 +65,23 @@ function percent(value: number) {
 
 export function scoreRepeatAttempt({ targetText, transcript, fallbackTranscript = false, fallbackFeedback }: ScoreInput): RepeatAttempt {
   const targetWords = normalizeWords(targetText);
-  const normalizedTranscript = transcript?.trim() || targetText;
+  const normalizedTranscript = transcript?.trim() ?? "";
   const transcriptWords = normalizeWords(normalizedTranscript);
+  const emptyTranscript = transcriptWords.length === 0;
 
   if (targetWords.length === 0) {
+    const feedback = "目标句为空，无法评分。";
+
     return {
       transcript: normalizedTranscript,
       accuracy: 0,
       completeness: 0,
       missedWords: [],
       overall: 0,
-      feedback: "目标句为空，无法评分。"
+      feedback,
+      scorable: false,
+      emptyTranscript,
+      reason: feedback
     };
   }
 
@@ -83,20 +89,24 @@ export function scoreRepeatAttempt({ targetText, transcript, fallbackTranscript 
   const missedWords = getMissedWords(targetWords, transcriptWords);
   const accuracy = percent(1 - distance / Math.max(targetWords.length, transcriptWords.length, 1));
   const completeness = percent(1 - missedWords.length / targetWords.length);
-  const overall = Math.round(accuracy * 0.6 + completeness * 0.4);
+  const scorable = !fallbackTranscript && !emptyTranscript;
+  const overall = scorable ? Math.round(accuracy * 0.6 + completeness * 0.4) : 0;
   const uniqueMissedWords = Array.from(new Set(missedWords));
-  const feedback = fallbackTranscript
-    ? (fallbackFeedback ?? "未拿到真实转写，本次按目标句完成一次文本评分演示。")
+  const feedback = !scorable
+    ? (fallbackFeedback ?? "未识别到转写，请重新录音。")
     : uniqueMissedWords.length > 0
       ? `再练一次这些词：${uniqueMissedWords.slice(0, 5).join(", ")}。`
       : "内容说全了，可以进入下一句。";
 
   return {
     transcript: normalizedTranscript,
-    accuracy,
-    completeness,
+    accuracy: scorable ? accuracy : 0,
+    completeness: scorable ? completeness : 0,
     missedWords: uniqueMissedWords,
     overall,
-    feedback
+    feedback,
+    scorable,
+    emptyTranscript,
+    reason: scorable ? undefined : feedback
   };
 }
