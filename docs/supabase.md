@@ -41,7 +41,26 @@ curl -X POST http://localhost:3000/api/admin/import-subtitles \
 
 - `https://...`：直接返回。
 - `/mock/...`：本地 mock 原样返回。
+- `local/path/to/video.mp4`：从服务器本地 `LOCAL_MEDIA_ROOT` 目录读取，并通过受登录保护的 `/api/media/local/...` 支持 Range 播放。
 - `bucket/path/to/video.mp4`：从 Supabase Storage 生成 15 分钟签名 URL。
+
+自有服务器 / Docker 部署时推荐先使用 `local/...`：
+
+```bash
+LOCAL_MEDIA_ROOT=/data/your-english-coach/media
+```
+
+例如数据库里保存：
+
+```text
+local/friends/s01e01.mp4
+```
+
+实际文件放在：
+
+```text
+/data/your-english-coach/media/friends/s01e01.mp4
+```
 
 ## 录音上传
 

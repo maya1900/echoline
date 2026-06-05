@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BookOpenCheck,
+  Copy,
   Database,
   FileUp,
   Film,
+  FolderInput,
   KeyRound,
   ListChecks,
   Lock,
@@ -14,6 +16,7 @@ import {
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
+  Server,
   UserCog,
   Users
 } from "lucide-react";
@@ -85,6 +88,7 @@ type SubtitleLineResponse = {
 
 type AdminModule = "imports" | "users" | "permissions" | "settings";
 type ImportPanel = "series" | "episode" | "subtitles" | "editor";
+type MediaSource = "local" | "storage" | "url" | "mock";
 
 const statusText = {
   queued: "排队中",
@@ -97,6 +101,12 @@ const defaultCoverUrl = "https://images.unsplash.com/photo-1518005020951-eccb494
 const difficultyOptions = ["A1", "A2", "B1", "B2", "C1", "C2"];
 const genreOptions = ["生活 / 情景", "校园", "职场", "家庭", "旅行", "喜剧", "纪录片"];
 const dictionaryProviderOptions = ["bigmodel", "siliconflow"];
+const mediaSources: Array<{ id: MediaSource; label: string; hint: string }> = [
+  { id: "local", label: "服务器本地", hint: "local/series/s01e01.mp4" },
+  { id: "storage", label: "私有 Storage", hint: "media/series/s01e01.mp4" },
+  { id: "url", label: "外部 URL", hint: "https://example.com/video.mp4" },
+  { id: "mock", label: "Mock", hint: "/api/mock-media/campus/s01e01.mp4" }
+];
 
 export function AdminWorkbench({
   initialSeries,
@@ -135,6 +145,7 @@ export function AdminWorkbench({
     episodeNumber: nextEpisodeNumber(initialSeries[0]),
     title: "",
     description: "",
+    mediaSource: "local" as MediaSource,
     mediaUrl: "",
     durationMinutes: 22,
     status: "published"
@@ -225,6 +236,35 @@ export function AdminWorkbench({
     }
 
     setIsSubmitting(false);
+  }
+
+  function applyMediaSource(source: MediaSource) {
+    setEpisodeForm((current) => {
+      const shouldReplace = !current.mediaUrl.trim() || mediaSources.some((item) => current.mediaUrl === item.hint);
+
+      return {
+        ...current,
+        mediaSource: source,
+        mediaUrl: shouldReplace ? getMediaPathTemplate(source, current) : current.mediaUrl
+      };
+    });
+  }
+
+  function copyMediaPath() {
+    if (!episodeForm.mediaUrl.trim()) {
+      setMessage("先填写媒体路径");
+      return;
+    }
+
+    if (!navigator.clipboard) {
+      setMessage("当前浏览器不支持自动复制，可手动选中路径");
+      return;
+    }
+
+    void navigator.clipboard
+      .writeText(episodeForm.mediaUrl)
+      .then(() => setMessage("媒体路径已复制"))
+      .catch(() => setMessage("复制失败，可手动选中路径"));
   }
 
   async function submitSubtitles(event: React.FormEvent<HTMLFormElement>) {
@@ -495,10 +535,46 @@ export function AdminWorkbench({
                   ))}
                 </SelectField>
                 <TextField label="标题" value={episodeForm.title} required onChange={(value) => setEpisodeForm((current) => ({ ...current, title: value }))} />
-                <TextField label="媒体路径" value={episodeForm.mediaUrl} onChange={(value) => setEpisodeForm((current) => ({ ...current, mediaUrl: value }))} />
-                <p className="rounded-md border border-[color:var(--line)] bg-white/50 px-3 py-2 text-xs leading-5 text-[color:var(--muted)]">
-                  私有 Storage 用 bucket/path，例如 media/friends/s01e01.mp4；外部 URL 或 /mock 路径会原样使用。
-                </p>
+                <section className="rounded-md border border-[color:var(--line)] bg-white/45 p-3">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Server className="h-4 w-4 text-[color:var(--green)]" aria-hidden="true" />
+                    <h4 className="text-sm font-bold">媒体来源</h4>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {mediaSources.map((source) => (
+                      <button
+                        key={source.id}
+                        type="button"
+                        onClick={() => applyMediaSource(source.id)}
+                        className={cn(
+                          "flex min-h-12 items-center justify-between gap-3 rounded-md border border-[color:var(--line)] px-3 py-2 text-left text-sm transition hover:border-[color:var(--ink)]",
+                          episodeForm.mediaSource === source.id && "border-[color:var(--ink)] bg-white"
+                        )}
+                      >
+                        <span>
+                          <span className="block font-bold">{source.label}</span>
+                          <span className="mt-0.5 block truncate text-xs text-[color:var(--muted)]">{source.hint}</span>
+                        </span>
+                        {source.id === "local" ? <FolderInput className="h-4 w-4 shrink-0 text-[color:var(--amber)]" aria-hidden="true" /> : null}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid gap-2">
+                    <TextField label="媒体路径" value={episodeForm.mediaUrl} onChange={(value) => setEpisodeForm((current) => ({ ...current, mediaUrl: value }))} />
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => applyMediaSource(episodeForm.mediaSource)} className="h-9 rounded-md border border-[color:var(--line)] px-3 text-xs font-semibold hover:border-[color:var(--ink)]">
+                        套用模板
+                      </button>
+                      <button type="button" onClick={copyMediaPath} className="flex h-9 items-center gap-2 rounded-md border border-[color:var(--line)] px-3 text-xs font-semibold hover:border-[color:var(--ink)]">
+                        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                        复制路径
+                      </button>
+                    </div>
+                  </div>
+                  <p className="mt-3 rounded-md border border-[color:var(--line)] bg-[color:var(--paper)] px-3 py-2 text-xs leading-5 text-[color:var(--muted)]">
+                    本地媒体使用 local/ 前缀，对应服务器 LOCAL_MEDIA_ROOT 目录；Docker 部署时把视频目录挂载到该路径。Storage 路径仍按 bucket/path 签名播放。
+                  </p>
+                </section>
                 <AdvancedFields>
                   <div className="grid grid-cols-3 gap-3">
                     <NumberField label="季" value={episodeForm.seasonNumber} min={1} onChange={(value) => setEpisodeForm((current) => ({ ...current, seasonNumber: value }))} />
@@ -899,6 +975,38 @@ function nextEpisodeNumber(series?: Series) {
   }
 
   return Math.max(...series.episodes.map((episode) => episode.episodeNumber)) + 1;
+}
+
+function getMediaPathTemplate(
+  source: MediaSource,
+  episode: { seasonNumber: number; episodeNumber: number; title: string }
+) {
+  const season = String(episode.seasonNumber || 1).padStart(2, "0");
+  const episodeNumber = String(episode.episodeNumber || 1).padStart(2, "0");
+  const stem = slugifyPathPart(episode.title) || `s${season}e${episodeNumber}`;
+
+  if (source === "storage") {
+    return `media/s${season}/${stem}.mp4`;
+  }
+
+  if (source === "url") {
+    return `https://example.com/s${season}/${stem}.mp4`;
+  }
+
+  if (source === "mock") {
+    return `/api/mock-media/campus/${stem}.mp4`;
+  }
+
+  return `local/s${season}/${stem}.mp4`;
+}
+
+function slugifyPathPart(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function splitKeywords(value: string) {
