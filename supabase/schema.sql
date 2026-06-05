@@ -184,7 +184,21 @@ grant select on public.subtitle_lines to anon, authenticated;
 
 grant select on public.dictionary_entries to anon, authenticated;
 
-grant select, insert, update on public.profiles to authenticated;
+grant select on public.profiles to authenticated;
+grant insert (id, email, display_name, avatar_url) on public.profiles to authenticated;
+grant update (
+  email,
+  display_name,
+  avatar_url,
+  subtitle_language,
+  default_playback_rate,
+  auto_loop,
+  ai_scoring_enabled,
+  asr_provider,
+  asr_model,
+  asr_api_key,
+  updated_at
+) on public.profiles to authenticated;
 grant select, insert, update, delete on public.learning_progress to authenticated;
 grant select, insert, update, delete on public.study_plans to authenticated;
 grant select, insert, update, delete on public.repeat_attempts to authenticated;
