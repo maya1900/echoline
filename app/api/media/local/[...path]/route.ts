@@ -4,31 +4,9 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
 import { requireUserRequest } from "@/lib/auth/api";
+import { localMediaTypes, resolveLocalMediaPath } from "@/lib/media/local";
 
 export const runtime = "nodejs";
-
-const mediaTypes: Record<string, string> = {
-  ".mp4": "video/mp4",
-  ".m4v": "video/mp4",
-  ".mov": "video/quicktime",
-  ".webm": "video/webm",
-  ".mp3": "audio/mpeg",
-  ".m4a": "audio/mp4",
-  ".wav": "audio/wav",
-  ".vtt": "text/vtt"
-};
-
-function getLocalMediaRoot() {
-  return process.env.LOCAL_MEDIA_ROOT?.trim() || "/data/your-english-coach/media";
-}
-
-function resolveMediaPath(parts: string[]) {
-  const root = path.resolve(/*turbopackIgnore: true*/ getLocalMediaRoot());
-  const filePath = path.resolve(/*turbopackIgnore: true*/ root, ...parts);
-  const isInsideRoot = filePath === root || filePath.startsWith(`${root}${path.sep}`);
-
-  return isInsideRoot ? { root, filePath } : null;
-}
 
 function parseRangeHeader(rangeHeader: string | null, size: number) {
   if (!rangeHeader) {
@@ -60,7 +38,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   }
 
   const { path: requestedPath } = await params;
-  const resolved = resolveMediaPath(requestedPath);
+  const resolved = resolveLocalMediaPath(requestedPath);
 
   if (!resolved) {
     return NextResponse.json({ error: "Invalid media path" }, { status: 400 });
@@ -72,7 +50,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
     return NextResponse.json({ error: "Media file not found" }, { status: 404 });
   }
 
-  const contentType = mediaTypes[path.extname(resolved.filePath).toLowerCase()] ?? "application/octet-stream";
+  const contentType = localMediaTypes[path.extname(resolved.filePath).toLowerCase()] ?? "application/octet-stream";
   const range = parseRangeHeader(request.headers.get("range"), fileStat.size);
   const headers = new Headers({
     "Accept-Ranges": "bytes",

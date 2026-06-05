@@ -19,7 +19,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 - Supabase Auth 已接入邮箱登录/注册、callback、logout，并在登录后初始化 `profiles` 与 `study_plans`。
 - `study-plan`、`vocab`、`attempts/score` 和管理员接口已尝试写真实表，失败时保留 mock 响应。
 - `POST /api/admin/import-subtitles` 已支持 SRT/VTT 解析并写入 `subtitle_lines`。
-- `POST /api/admin/media` 已支持管理员上传视频到私有 Storage，并把 `bucket/path` 回填到集数表单。
+- `POST /api/admin/media` 已支持管理员上传视频到服务器本地媒体目录或私有 Storage，并把 `local/path` 或 `bucket/path` 回填到集数表单。
 - `GET /api/episodes/:id/media-url` 已支持 Supabase Storage 私有文件签名 URL。
 - `POST /api/attempts/score` 已支持 JSON 文本评分和 `multipart/form-data` 录音上传，录音路径写入 `repeat_attempts.audio_url`。
 - 评分当前会优先用已提交文本或 OpenAI ASR 转写录音，再走 V1 文本评分 fallback；只返回转写、准确度、完整度、漏词、总分和中文短反馈，`fluency` 不写分数。
@@ -74,7 +74,8 @@ media/s01/pilot.mp4
 自有服务器 / Docker 部署时推荐先使用 `local/...`：
 
 ```bash
-LOCAL_MEDIA_ROOT=/data/your-english-coach/media
+MEDIA_STORAGE=local
+LOCAL_MEDIA_ROOT=/data/echoline/media
 ```
 
 例如数据库里保存：
@@ -86,7 +87,13 @@ local/friends/s01e01.mp4
 实际文件放在：
 
 ```text
-/data/your-english-coach/media/friends/s01e01.mp4
+/data/echoline/media/friends/s01e01.mp4
+```
+
+此模式下后台上传视频会直接写入 `LOCAL_MEDIA_ROOT`，返回的 `mediaUrl` 形如：
+
+```text
+local/s01/pilot-a1b2c3d4.mp4
 ```
 
 ## 录音上传
@@ -142,6 +149,12 @@ alter table public.profiles
   add column if not exists asr_api_key text;
 ```
 
+如果已有库里保存过旧应用名称，可执行：
+
+```text
+supabase/patch-echoline-brand.sql
+```
+
 ## 查词配置
 
 AI 查词的 Provider、模型和 API Key 以 `/admin` 后台保存到 `site_settings` 的配置为准，不读取 `DICTIONARY_AI_PROVIDER`、`DICTIONARY_AI_MODEL` 或 `DICTIONARY_AI_API_KEY` 环境变量。
@@ -159,9 +172,9 @@ custom:linuxdo
 Linux.do 创建 OAuth2/OIDC 应用时填写：
 
 ```text
-应用名：your-english-coach
+应用名：追句 EchoLine
 应用主页：http://localhost:3000
-应用描述：看剧学英语
+应用描述：逐句看剧学英语
 回调地址：https://<SUPABASE_PROJECT_REF>.supabase.co/auth/v1/callback
 应用图标：可留空，或填写公开可访问的 logo URL
 ```
@@ -202,4 +215,4 @@ https://connect.linux.do/.well-known/openid-configuration
 ## 下一步
 
 - 增加登录后的桌面和移动端端到端冒烟检查。
-- 部署前复核 Supabase schema/seed、环境变量、Storage bucket 和 OAuth Redirect URLs。
+- 部署前复核 Supabase schema/seed、Docker 环境变量、本地媒体目录、可选 Storage bucket 和 OAuth Redirect URLs。

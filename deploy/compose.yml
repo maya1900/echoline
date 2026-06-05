@@ -1,0 +1,72 @@
+name: echoline
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: echoline:web
+    restart: unless-stopped
+    environment:
+      HOSTNAME: 0.0.0.0
+      LOCAL_MEDIA_ROOT: ${LOCAL_MEDIA_ROOT:-/data/echoline/media}
+      MEDIA_BUCKET: ${MEDIA_BUCKET:-media}
+      MEDIA_STORAGE: ${MEDIA_STORAGE:-local}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NODE_ENV: production
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_TRANSCRIPTION_BASE_URL: ${OPENAI_TRANSCRIPTION_BASE_URL:-}
+      PORT: "3000"
+      RECORDINGS_BUCKET: ${RECORDINGS_BUCKET:-recordings}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ASR_MODEL: ${ASR_MODEL:-gpt-4o-mini-transcribe}
+      ASR_PROVIDER: ${ASR_PROVIDER:-openai}
+      DICTIONARY_AI_BASE_URL: ${DICTIONARY_AI_BASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
+    volumes:
+      - type: bind
+        source: ${ECHOLINE_MEDIA_ROOT:-/data/echoline/media}
+        target: /data/echoline/media
+    depends_on:
+      - redis
+    networks:
+      - app
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - app
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      SUPABASE_KONG_URL: ${SUPABASE_KONG_URL:-http://host.docker.internal:8000}
+      ECHOLINE_DOMAIN: ${ECHOLINE_DOMAIN:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - app
+
+networks:
+  app:
+
+volumes:
+  caddy-config:
+  caddy-data:
+  redis-data:

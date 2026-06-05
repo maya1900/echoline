@@ -14,8 +14,8 @@ type SiteSettingsRow = {
 };
 
 export const defaultSiteSettings: SiteSettings = {
-  appName: "Your English Coach",
-  workspaceSubtitle: "看剧学英语工作台",
+  appName: "追句 EchoLine",
+  workspaceSubtitle: "逐句看剧学英语工作台",
   defaultDailyMinutes: 25,
   defaultDailyLines: 18,
   defaultDailyRepeats: 8,

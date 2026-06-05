@@ -2,7 +2,7 @@
 
 ## 目标
 
-交付一个 V1 学习工作台原型：先用类型化 mock 数据跑通完整学习闭环，再为 Supabase Auth、Postgres、Storage 和 AI 评分留下清晰接入点。
+交付追句 EchoLine 的 V1 学习工作台原型：先用类型化 mock 数据跑通完整学习闭环，再为 Supabase Auth、Postgres、Storage 和 AI 评分留下清晰接入点。
 
 ## 阶段一：可运行产品骨架
 
@@ -33,7 +33,7 @@
 ## 阶段四：后续后端集成
 
 - 用 Supabase 查询替换 mock 数据，并依赖 RLS 保护用户数据。
-- 从 Supabase 私有 Storage bucket 生成短期签名媒体 URL。
+- 支持服务器本地媒体目录播放，并兼容 Supabase 私有 Storage 短期签名媒体 URL。
 - 接入 Supabase Auth 和 profile 角色判断。
 - 实现服务端字幕导入解析。
 - 增加 AI Provider 适配器，用于转写和文本级匹配反馈。
@@ -56,7 +56,7 @@
 
 1. 验收与部署：跑 `typecheck`、`lint`、`build`，做桌面和移动端学习页冒烟检查。
 2. 登录后冒烟：用真实会话检查生词页复习队列、学习页字幕和录音控件在桌面/移动端的布局。
-3. 部署前收口：确认 Supabase schema/seed、环境变量、Storage bucket 和 OAuth Redirect URLs 与文档一致。
+3. 部署前收口：确认自托管 Supabase schema/seed、Docker 环境变量、本地媒体目录和 OAuth Redirect URLs 与文档一致。
 
 ## 验证方式
 

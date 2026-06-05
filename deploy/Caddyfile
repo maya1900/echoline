@@ -1,0 +1,15 @@
+{$ECHOLINE_DOMAIN} {
+  encode zstd gzip
+
+  request_body {
+    max_size 1200MB
+  }
+
+  handle_path /supabase/* {
+    reverse_proxy {$SUPABASE_KONG_URL}
+  }
+
+  handle {
+    reverse_proxy web:3000
+  }
+}

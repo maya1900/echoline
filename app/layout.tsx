@@ -3,8 +3,8 @@ import { RouteLoadingIndicator } from "@/components/route-loading-indicator";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Your English Coach",
-  description: "看剧学英语学习工作台"
+  title: "追句 EchoLine",
+  description: "逐句看剧学英语工作台"
 };
 
 export default function RootLayout({

@@ -19,7 +19,7 @@ export default async function LoginPage({
           <ArrowRight className="h-4 w-4 rotate-180" aria-hidden="true" />
           返回工作台
         </Link>
-        <h1 className="text-2xl font-bold">登录 Your English Coach</h1>
+        <h1 className="text-2xl font-bold">登录追句 EchoLine</h1>
         {error ? <p className="mt-4 rounded-md border border-[color:var(--red)] bg-white/70 p-3 text-sm leading-6 text-[color:var(--red)]">{error}</p> : null}
         <LoginForm nextPath={nextPath} allowSignup={siteSettings.allowPublicSignup} />
       </section>

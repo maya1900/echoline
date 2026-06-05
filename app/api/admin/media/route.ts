@@ -1,5 +1,8 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { NextResponse } from "next/server";
 import { requireAdminRequest } from "@/lib/auth/api";
+import { resolveLocalMediaPath } from "@/lib/media/local";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -8,9 +11,14 @@ const maxMediaBytes = 1024 * 1024 * 1024;
 const allowedExtensions = new Set(["mp4", "webm", "mov", "m4v"]);
 
 type SupabaseAdminClient = NonNullable<ReturnType<typeof createSupabaseAdminClient>>;
+type MediaStorage = "local" | "supabase";
 
 function getMediaBucket() {
   return process.env.MEDIA_BUCKET?.trim() || "media";
+}
+
+function getMediaStorage(): MediaStorage {
+  return process.env.MEDIA_STORAGE?.trim().toLowerCase() === "local" ? "local" : "supabase";
 }
 
 function getMediaExtension(file: File) {
@@ -71,6 +79,17 @@ async function ensureMediaBucket(supabase: SupabaseAdminClient, bucket: string) 
   }
 }
 
+async function saveLocalMedia(file: File, objectPath: string) {
+  const resolved = resolveLocalMediaPath(objectPath.split("/"));
+
+  if (!resolved) {
+    throw new Error("Invalid local media path");
+  }
+
+  await mkdir(path.dirname(resolved.filePath), { recursive: true });
+  await writeFile(resolved.filePath, Buffer.from(await file.arrayBuffer()), { flag: "wx" });
+}
+
 export async function POST(request: Request) {
   const admin = await requireAdminRequest();
 
@@ -95,12 +114,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unsupported media file type" }, { status: 400 });
   }
 
-  const supabaseAdmin = createSupabaseAdminClient();
-
-  if (!supabaseAdmin) {
-    return NextResponse.json({ error: "Supabase service role is not configured" }, { status: 503 });
-  }
-
   const bucket = getMediaBucket();
   const seasonNumber = positiveInt(formData?.get("seasonNumber") ?? null, 1);
   const episodeNumber = positiveInt(formData?.get("episodeNumber") ?? null, 1);
@@ -109,6 +122,32 @@ export async function POST(request: Request) {
   const episode = String(episodeNumber).padStart(2, "0");
   const stem = slugifyPathPart(title) || `s${season}e${episode}`;
   const objectPath = `s${season}/${stem}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
+  const mediaStorage = getMediaStorage();
+
+  if (mediaStorage === "local") {
+    try {
+      await saveLocalMedia(file, objectPath);
+    } catch {
+      return NextResponse.json({ error: "Failed to save local media" }, { status: 500 });
+    }
+
+    return NextResponse.json(
+      {
+        data: {
+          bucket: "local",
+          path: objectPath,
+          mediaUrl: `local/${objectPath}`
+        }
+      },
+      { status: 201 }
+    );
+  }
+
+  const supabaseAdmin = createSupabaseAdminClient();
+
+  if (!supabaseAdmin) {
+    return NextResponse.json({ error: "Supabase service role is not configured" }, { status: 503 });
+  }
 
   try {
     await ensureMediaBucket(supabaseAdmin, bucket);
