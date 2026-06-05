@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BookOpenCheck,
   Database,
@@ -63,6 +63,24 @@ type ImportResponse = {
     created_at: string;
   };
   lines?: unknown[];
+};
+
+type SubtitleLineResponse = {
+  id: string;
+  episode_id?: string;
+  episodeId?: string;
+  line_index?: number;
+  lineIndex?: number;
+  start_ms?: number;
+  startMs?: number;
+  end_ms?: number;
+  endMs?: number;
+  english_text?: string;
+  englishText?: string;
+  chinese_text?: string | null;
+  chineseText?: string | null;
+  difficulty?: string | null;
+  keywords?: string[] | null;
 };
 
 type AdminModule = "imports" | "users" | "permissions" | "settings";
@@ -222,7 +240,10 @@ export function AdminWorkbench({
     if (response) {
       const nextJob = mapImportResponse(response, subtitleForm.sourceFilename);
       setJobs((current) => [nextJob, ...current]);
-      setMessage("字幕已导入");
+      setEditorEpisodeId(subtitleForm.episodeId);
+      setActivePanel("editor");
+      await loadSubtitleLines(subtitleForm.episodeId);
+      setMessage(`${nextJob.result}，可继续校对时间轴`);
     } else {
       setMessage("字幕导入失败");
     }
@@ -249,7 +270,7 @@ export function AdminWorkbench({
     }
   }
 
-  const selectSubtitleLine = useCallback((line: SubtitleLine) => {
+  function selectSubtitleLine(line: SubtitleLine) {
     setSelectedLineId(line.id);
     setLineForm({
       englishText: line.englishText,
@@ -259,9 +280,9 @@ export function AdminWorkbench({
       difficulty: line.difficulty || "B1",
       keywords: line.keywords.join(", ")
     });
-  }, []);
+  }
 
-  const loadSubtitleLines = useCallback(async (episodeId: string) => {
+  async function loadSubtitleLines(episodeId: string) {
     setMessage("读取字幕中");
     const response = await fetch(`/api/episodes/${episodeId}/subtitles`).catch(() => null);
     const payload = response ? ((await response.json().catch(() => null)) as { data?: SubtitleLine[] } | null) : null;
@@ -275,15 +296,42 @@ export function AdminWorkbench({
       setSelectedLineId("");
       setMessage("当前集数还没有字幕");
     }
-  }, [selectSubtitleLine]);
+  }
 
   useEffect(() => {
-    if (activeModule === "imports" && activePanel === "editor" && editorEpisodeId) {
-      queueMicrotask(() => {
-        void loadSubtitleLines(editorEpisodeId);
-      });
+    if (activeModule !== "imports" || activePanel !== "editor" || !editorEpisodeId) {
+      return;
     }
-  }, [activeModule, activePanel, editorEpisodeId, loadSubtitleLines]);
+
+    let active = true;
+
+    async function loadEditorLines() {
+      setMessage("读取字幕中");
+      const response = await fetch(`/api/episodes/${editorEpisodeId}/subtitles`).catch(() => null);
+      const payload = response ? ((await response.json().catch(() => null)) as { data?: SubtitleLine[] } | null) : null;
+      const lines = payload?.data ?? [];
+
+      if (!active) {
+        return;
+      }
+
+      setSubtitleLines(lines);
+
+      if (lines[0]) {
+        selectSubtitleLine(lines[0]);
+        setMessage(`已读取 ${lines.length} 行字幕`);
+      } else {
+        setSelectedLineId("");
+        setMessage("当前集数还没有字幕");
+      }
+    }
+
+    void loadEditorLines();
+
+    return () => {
+      active = false;
+    };
+  }, [activeModule, activePanel, editorEpisodeId]);
 
   async function saveSubtitleLine(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -306,26 +354,17 @@ export function AdminWorkbench({
         keywords: splitKeywords(lineForm.keywords)
       })
     }).catch(() => null);
+    const payload = response ? ((await response.json().catch(() => null)) as { data?: SubtitleLineResponse; error?: string } | null) : null;
 
-    if (response?.ok) {
+    if (response?.ok && payload?.data) {
+      const updatedLine = mapSubtitleLineResponse(payload.data);
       setSubtitleLines((current) =>
-        current.map((line) =>
-          line.id === selectedLineId
-            ? {
-                ...line,
-                englishText: lineForm.englishText,
-                chineseText: lineForm.chineseText,
-                startMs: lineForm.startMs,
-                endMs: lineForm.endMs,
-                difficulty: lineForm.difficulty,
-                keywords: splitKeywords(lineForm.keywords)
-              }
-            : line
-        )
+        current.map((line) => (line.id === selectedLineId ? updatedLine : line))
       );
+      selectSubtitleLine(updatedLine);
       setMessage("字幕已保存");
     } else {
-      setMessage("字幕保存失败");
+      setMessage(payload?.error ?? "字幕保存失败");
     }
 
     setIsSubmitting(false);
@@ -457,6 +496,9 @@ export function AdminWorkbench({
                 </SelectField>
                 <TextField label="标题" value={episodeForm.title} required onChange={(value) => setEpisodeForm((current) => ({ ...current, title: value }))} />
                 <TextField label="媒体路径" value={episodeForm.mediaUrl} onChange={(value) => setEpisodeForm((current) => ({ ...current, mediaUrl: value }))} />
+                <p className="rounded-md border border-[color:var(--line)] bg-white/50 px-3 py-2 text-xs leading-5 text-[color:var(--muted)]">
+                  私有 Storage 用 bucket/path，例如 media/friends/s01e01.mp4；外部 URL 或 /mock 路径会原样使用。
+                </p>
                 <AdvancedFields>
                   <div className="grid grid-cols-3 gap-3">
                     <NumberField label="季" value={episodeForm.seasonNumber} min={1} onChange={(value) => setEpisodeForm((current) => ({ ...current, seasonNumber: value }))} />
@@ -553,6 +595,12 @@ export function AdminWorkbench({
               {latestJob ? <StatusBadge label={statusText[latestJob.status]} /> : null}
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {series.length === 0 ? (
+                <div className="rounded-md border border-[color:var(--line)] p-4 md:col-span-2">
+                  <h3 className="font-bold">还没有导入内容</h3>
+                  <p className="mt-2 text-sm text-[color:var(--muted)]">先创建剧集，再添加集数和字幕。</p>
+                </div>
+              ) : null}
               {series.map((item) => (
                 <article key={item.id} className="rounded-md border border-[color:var(--line)] p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -582,6 +630,12 @@ export function AdminWorkbench({
           <section className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-5">
             <h2 className="text-xl font-bold">导入任务</h2>
             <div className="mt-4 space-y-3">
+              {jobs.length === 0 ? (
+                <div className="rounded-md border border-[color:var(--line)] p-4">
+                  <h3 className="font-bold">暂无导入任务</h3>
+                  <p className="mt-2 text-sm text-[color:var(--muted)]">字幕导入后会在这里显示解析结果。</p>
+                </div>
+              ) : null}
               {jobs.map((job) => (
                 <article key={job.id} className="rounded-md border border-[color:var(--line)] p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -822,6 +876,20 @@ function mapImportResponse(row: ImportResponse, fallbackTitle: string): AdminImp
     status: row.status ?? "failed",
     result: row.result ?? `解析 ${row.lines?.length ?? 0} 行字幕`,
     createdAt: "刚刚"
+  };
+}
+
+function mapSubtitleLineResponse(row: SubtitleLineResponse): SubtitleLine {
+  return {
+    id: row.id,
+    episodeId: row.episodeId ?? row.episode_id ?? "",
+    lineIndex: row.lineIndex ?? row.line_index ?? 0,
+    startMs: row.startMs ?? row.start_ms ?? 0,
+    endMs: row.endMs ?? row.end_ms ?? 0,
+    englishText: row.englishText ?? row.english_text ?? "",
+    chineseText: row.chineseText ?? row.chinese_text ?? "",
+    difficulty: row.difficulty ?? "",
+    keywords: row.keywords ?? []
   };
 }
 
