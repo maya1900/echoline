@@ -140,8 +140,15 @@ export function LearningStudio({
       return;
     }
 
-    subtitleButtonRefs.current[current.id]?.scrollIntoView({
-      block: "center",
+    const queue = subtitleQueueRef.current;
+    const activeButton = subtitleButtonRefs.current[current.id];
+
+    if (!queue || !activeButton) {
+      return;
+    }
+
+    queue.scrollTo({
+      top: activeButton.offsetTop - queue.clientHeight / 2 + activeButton.clientHeight / 2,
       behavior: "smooth"
     });
   }, [current.id, followPlayback]);
@@ -734,10 +741,10 @@ export function LearningStudio({
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-      <section className="space-y-4">
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <section className="min-w-0 space-y-4">
         <div className="overflow-hidden rounded-md border border-[color:var(--ink)] bg-[color:var(--panel)]">
-          <div className="relative isolate aspect-video min-h-[420px] overflow-hidden bg-black text-white lg:min-h-[560px]">
+          <div className="relative isolate h-[320px] overflow-hidden bg-black text-white sm:h-[420px] lg:h-[560px]">
             {!mediaUrl ? <img src={parentSeries.coverUrl} alt={parentSeries.title} className="absolute inset-0 h-full w-full object-cover opacity-60" /> : null}
             {mediaUrl ? (
               <video
@@ -764,7 +771,7 @@ export function LearningStudio({
                 aria-hidden="true"
               />
             ) : null}
-            <div className="relative z-20 flex h-full min-h-[420px] flex-col justify-between p-5 sm:p-6 lg:min-h-[560px]">
+            <div className="relative z-20 flex h-full flex-col justify-between p-4 sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm text-white/70">
@@ -775,13 +782,13 @@ export function LearningStudio({
                 <span className="rounded-md border border-white/20 px-3 py-1 text-sm">{msToClock(current.startMs)} - {msToClock(current.endMs)}</span>
               </div>
 
-              <div className="flex flex-wrap items-center justify-center gap-2">
+              <div className="mx-auto grid w-full max-w-xs grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-2">
                 <button onClick={() => move(-1)} className="grid h-11 w-11 place-items-center rounded-md border border-white/20 bg-white/10" aria-label="上一句">
                   <ChevronLeft className="h-5 w-5" aria-hidden="true" />
                 </button>
-                <button onClick={togglePlayback} className="flex h-11 min-w-32 items-center justify-center gap-2 rounded-md bg-[color:var(--paper)] px-4 font-semibold text-[color:var(--ink)]">
+                <button onClick={togglePlayback} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-md bg-[color:var(--paper)] px-3 font-semibold text-[color:var(--ink)] sm:px-4">
                   {isPlaying ? <Pause className="h-4 w-4" aria-hidden="true" /> : <Play className="h-4 w-4" aria-hidden="true" />}
-                  {isPlaying ? "暂停" : "播放"}
+                  <span className="whitespace-nowrap">{isPlaying ? "暂停" : "播放"}</span>
                 </button>
                 <button onClick={() => move(1)} className="grid h-11 w-11 place-items-center rounded-md border border-white/20 bg-white/10" aria-label="下一句">
                   <ChevronRight className="h-5 w-5" aria-hidden="true" />
@@ -978,7 +985,7 @@ export function LearningStudio({
         )}
       </section>
 
-      <aside className="space-y-4">
+      <aside className="min-w-0 space-y-4">
         <div className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
           <div className="flex items-center gap-2">
             <ListVideo className="h-4 w-4 text-[color:var(--amber)]" aria-hidden="true" />
@@ -1008,7 +1015,7 @@ export function LearningStudio({
               type="button"
               onClick={() => setFollowPlayback((value) => !value)}
               className={cn(
-                "h-9 shrink-0 rounded-md border border-[color:var(--line)] px-3 text-xs font-semibold",
+                "h-10 shrink-0 rounded-md border border-[color:var(--line)] px-3 text-xs font-semibold",
                 followPlayback && "ink-action border-[color:var(--ink)]"
               )}
             >

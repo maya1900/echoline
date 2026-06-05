@@ -216,7 +216,7 @@ export default async function DashboardPage() {
                 </div>
                 <h3 className="truncate text-lg font-bold">{item.title}</h3>
                 <p className="mt-1 line-clamp-2 text-sm leading-6 text-[color:var(--muted)]">{item.description}</p>
-                <Link href="/series" className="mt-3 inline-flex h-9 items-center gap-2 rounded-md border border-[color:var(--line)] px-3 text-sm font-semibold hover:border-[color:var(--ink)]">
+                <Link href="/series" className="mt-3 inline-flex h-10 items-center gap-2 rounded-md border border-[color:var(--line)] px-3 text-sm font-semibold hover:border-[color:var(--ink)]">
                   查看片段
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Link>
