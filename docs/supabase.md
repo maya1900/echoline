@@ -37,12 +37,38 @@ curl -X POST http://localhost:3000/api/admin/import-subtitles \
 
 ## 私有媒体
 
-`episodes.media_url` 支持三种形式：
+`episodes.media_url` 支持四种形式：
 
 - `https://...`：直接返回。
 - `/mock/...`：本地 mock 原样返回。
 - `local/path/to/video.mp4`：从服务器本地 `LOCAL_MEDIA_ROOT` 目录读取，并通过受登录保护的 `/api/media/local/...` 支持 Range 播放。
 - `bucket/path/to/video.mp4`：从 Supabase Storage 生成 15 分钟签名 URL。
+
+推荐为剧集视频创建私有 bucket：
+
+```bash
+media
+```
+
+可用环境变量覆盖：
+
+```bash
+MEDIA_BUCKET=media
+```
+
+Storage object path 不包含 bucket，例如：
+
+```text
+s01/pilot.mp4
+```
+
+数据库 `episodes.media_url` 保存完整 `bucket/path`：
+
+```text
+media/s01/pilot.mp4
+```
+
+后台 `POST /api/admin/media` 上传成功后会返回并填入这个 `bucket/path`，播放时仍由 `GET /api/episodes/:id/media-url` 生成短期签名 URL。
 
 自有服务器 / Docker 部署时推荐先使用 `local/...`：
 
@@ -64,7 +90,7 @@ local/friends/s01e01.mp4
 
 ## 录音上传
 
-跟读和接下一句会把浏览器录音提交到 `POST /api/attempts/score` 的 `audio` 字段。服务端默认上传到私有 bucket `recordings`，也可以用 `RECORDINGS_BUCKET` 覆盖。
+跟读和接下一句会把浏览器录音提交到 `POST /api/attempts/score` 的 `audio` 字段。服务端默认上传到私有 bucket `recordings`，也可以用 `RECORDINGS_BUCKET` 覆盖。`RECORDINGS_BUCKET` 只用于 `repeat_attempts.audio_url` 的跟读/接下一句录音，不用于 `episodes.media_url` 的剧集视频。
 
 建议在 Supabase Storage 创建私有 bucket：
 
@@ -92,7 +118,7 @@ ZHIPU_API_KEY=...
 ASR_MODEL=glm-asr-2512
 ```
 
-也可以不写环境变量，直接在设置页填写当前用户自己的 ASR API Key。未配置 API Key 时，接口仍会保存录音并使用文本 fallback 完成评分演示。
+也可以不写环境变量，直接在设置页填写当前用户自己的 ASR API Key。未配置 API Key 或未拿到真实转写时，接口会返回不可评分结果，不会把目标句当作转写文本计入完成。
 
 设置页提供“录音测试”，会调用 `POST /api/settings/asr-test` 上传一段浏览器录制的人声音频，用来验证当前 Provider、Key 和模型是否能返回真实 `transcript`。
 

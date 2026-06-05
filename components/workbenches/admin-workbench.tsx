@@ -52,6 +52,10 @@ type EpisodeResponse = {
   progress?: number;
 };
 
+type MediaUploadResponse = {
+  mediaUrl?: string;
+};
+
 type ImportResponse = {
   id?: string;
   title?: string;
@@ -103,7 +107,7 @@ const genreOptions = ["生活 / 情景", "校园", "职场", "家庭", "旅行",
 const dictionaryProviderOptions = ["bigmodel", "siliconflow"];
 const mediaSources: Array<{ id: MediaSource; label: string; hint: string }> = [
   { id: "local", label: "服务器本地", hint: "local/series/s01e01.mp4" },
-  { id: "storage", label: "私有 Storage", hint: "media/series/s01e01.mp4" },
+  { id: "storage", label: "私有 Storage", hint: "media/s01/s01e01.mp4" },
   { id: "url", label: "外部 URL", hint: "https://example.com/video.mp4" },
   { id: "mock", label: "Mock", hint: "/api/mock-media/campus/s01e01.mp4" }
 ];
@@ -129,6 +133,7 @@ export function AdminWorkbench({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [savingUserId, setSavingUserId] = useState("");
   const [dictionaryApiKeyInput, setDictionaryApiKeyInput] = useState("");
+  const [mediaUpload, setMediaUpload] = useState({ isUploading: false, error: "", fileName: "" });
 
   const [seriesForm, setSeriesForm] = useState({
     title: "",
@@ -210,6 +215,12 @@ export function AdminWorkbench({
 
   async function submitEpisode(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (episodeForm.mediaSource === "storage" && !episodeForm.mediaUrl.trim()) {
+      setMessage("请先上传媒体文件或填写 Storage 路径");
+      return;
+    }
+
     setIsSubmitting(true);
     setMessage("创建集数中");
     const response = await postJson<EpisodeResponse>("/api/admin/episodes", {
@@ -228,8 +239,10 @@ export function AdminWorkbench({
         ...current,
         episodeNumber: current.episodeNumber + 1,
         title: "",
-        description: ""
+        description: "",
+        mediaUrl: current.mediaSource === "storage" ? "" : current.mediaUrl
       }));
+      setMediaUpload({ isUploading: false, error: "", fileName: "" });
       setMessage("集数已创建");
     } else {
       setMessage("集数创建失败");
@@ -238,9 +251,41 @@ export function AdminWorkbench({
     setIsSubmitting(false);
   }
 
-  function applyMediaSource(source: MediaSource) {
+  async function uploadEpisodeMedia(file: File | null) {
+    if (!file) {
+      return;
+    }
+
+    setMediaUpload({ isUploading: true, error: "", fileName: file.name });
+    setMessage("上传媒体中");
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("seasonNumber", String(episodeForm.seasonNumber));
+    formData.append("episodeNumber", String(episodeForm.episodeNumber));
+    formData.append("title", episodeForm.title);
+
+    const response = await fetch("/api/admin/media", {
+      method: "POST",
+      body: formData
+    }).catch(() => null);
+    const payload = response ? ((await response.json().catch(() => null)) as { data?: MediaUploadResponse; error?: string } | null) : null;
+
+    if (response?.ok && payload?.data?.mediaUrl) {
+      setEpisodeForm((current) => ({ ...current, mediaSource: "storage", mediaUrl: payload.data!.mediaUrl! }));
+      setMediaUpload({ isUploading: false, error: "", fileName: file.name });
+      setMessage("媒体已上传，Storage 路径已填入");
+      return;
+    }
+
+    const error = payload?.error ?? "媒体上传失败";
+    setMediaUpload({ isUploading: false, error, fileName: file.name });
+    setMessage(error);
+  }
+
+  function applyMediaSource(source: MediaSource, forceTemplate = false) {
     setEpisodeForm((current) => {
-      const shouldReplace = !current.mediaUrl.trim() || mediaSources.some((item) => current.mediaUrl === item.hint);
+      const shouldReplace = forceTemplate || !current.mediaUrl.trim() || mediaSources.some((item) => current.mediaUrl === item.hint);
 
       return {
         ...current,
@@ -559,10 +604,29 @@ export function AdminWorkbench({
                       </button>
                     ))}
                   </div>
+                  {episodeForm.mediaSource === "storage" ? (
+                    <label className="mt-3 grid gap-2 text-sm font-semibold">
+                      上传媒体文件
+                      <input
+                        type="file"
+                        accept="video/mp4,video/webm,video/quicktime,video/x-m4v,.mp4,.webm,.mov,.m4v"
+                        disabled={mediaUpload.isUploading}
+                        onChange={(event) => void uploadEpisodeMedia(event.target.files?.[0] ?? null)}
+                        className="rounded-md border border-[color:var(--line)] bg-white/70 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[color:var(--ink)] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white disabled:cursor-wait disabled:opacity-60"
+                      />
+                      {mediaUpload.fileName ? (
+                        <span className="text-xs text-[color:var(--muted)]">
+                          {mediaUpload.isUploading ? "上传中：" : "已选择："}
+                          {mediaUpload.fileName}
+                        </span>
+                      ) : null}
+                      {mediaUpload.error ? <span className="text-xs text-[color:var(--red)]">{mediaUpload.error}</span> : null}
+                    </label>
+                  ) : null}
                   <div className="mt-3 grid gap-2">
                     <TextField label="媒体路径" value={episodeForm.mediaUrl} onChange={(value) => setEpisodeForm((current) => ({ ...current, mediaUrl: value }))} />
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => applyMediaSource(episodeForm.mediaSource)} className="h-9 rounded-md border border-[color:var(--line)] px-3 text-xs font-semibold hover:border-[color:var(--ink)]">
+                      <button type="button" onClick={() => applyMediaSource(episodeForm.mediaSource, true)} className="h-9 rounded-md border border-[color:var(--line)] px-3 text-xs font-semibold hover:border-[color:var(--ink)]">
                         套用模板
                       </button>
                       <button type="button" onClick={copyMediaPath} className="flex h-9 items-center gap-2 rounded-md border border-[color:var(--line)] px-3 text-xs font-semibold hover:border-[color:var(--ink)]">
@@ -584,7 +648,7 @@ export function AdminWorkbench({
                   <TextArea label="简介" value={episodeForm.description} onChange={(value) => setEpisodeForm((current) => ({ ...current, description: value }))} />
                 </AdvancedFields>
               </div>
-              <SubmitButton disabled={isSubmitting || !episodeForm.seriesId} label="创建集数" />
+              <SubmitButton disabled={isSubmitting || mediaUpload.isUploading || !episodeForm.seriesId || (episodeForm.mediaSource === "storage" && !episodeForm.mediaUrl.trim())} label="创建集数" />
             </form>
           ) : null}
 
