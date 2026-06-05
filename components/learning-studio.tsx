@@ -48,6 +48,7 @@ export function LearningStudio({
   const shouldSubmitRecordingRef = useRef(true);
   const recordingStreamRef = useRef<MediaStream | null>(null);
   const autoRecordLineRef = useRef<string | null>(null);
+  const autoSubmitRecordingTimerRef = useRef<number | null>(null);
   const [mode, setMode] = useState<LearningMode>("intensive");
   const [lineIndex, setLineIndex] = useState(0);
   const [showEnglish, setShowEnglish] = useState(true);
@@ -127,9 +128,14 @@ export function LearningStudio({
 
   useEffect(() => {
     return () => {
+      if (autoSubmitRecordingTimerRef.current) {
+        window.clearTimeout(autoSubmitRecordingTimerRef.current);
+        autoSubmitRecordingTimerRef.current = null;
+      }
       recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
       recorderRef.current = null;
-      stopRecordingTracks();
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+      recordingStreamRef.current = null;
     };
   }, []);
 
@@ -295,8 +301,22 @@ export function LearningStudio({
   }
 
   function stopRecordingTracks() {
+    clearAutoSubmitRecordingTimer();
     recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
     recordingStreamRef.current = null;
+  }
+
+  function clearAutoSubmitRecordingTimer() {
+    if (autoSubmitRecordingTimerRef.current) {
+      window.clearTimeout(autoSubmitRecordingTimerRef.current);
+      autoSubmitRecordingTimerRef.current = null;
+    }
+  }
+
+  function getAutoSubmitDelayMs() {
+    const lineDuration = Math.max(current.endMs - current.startMs, 0);
+
+    return Math.min(Math.max(lineDuration + 1800, 3600), 14000);
   }
 
   function getRecordingMimeType() {
@@ -332,11 +352,13 @@ export function LearningStudio({
         }
       };
       recorder.onerror = () => {
+        clearAutoSubmitRecordingTimer();
         stopRecordingTracks();
         setIsRecording(false);
         setAttemptStatus("录音失败，请重新试一次");
       };
       recorder.onstop = () => {
+        clearAutoSubmitRecordingTimer();
         const audioBlob = new Blob(recordingChunksRef.current, { type: recorder.mimeType || "audio/webm" });
 
         stopRecordingTracks();
@@ -360,8 +382,14 @@ export function LearningStudio({
       recorder.start();
       setAttempt(null);
       setIsRecording(true);
-      setAttemptStatus("录音中");
+      const autoSubmitDelayMs = getAutoSubmitDelayMs();
+
+      autoSubmitRecordingTimerRef.current = window.setTimeout(() => {
+        stopRecording();
+      }, autoSubmitDelayMs);
+      setAttemptStatus(`录音中，约 ${Math.round(autoSubmitDelayMs / 1000)} 秒后自动提交`);
     } catch {
+      clearAutoSubmitRecordingTimer();
       stopRecordingTracks();
       setIsRecording(false);
       setAttemptStatus("无法使用麦克风，请检查浏览器权限");
@@ -372,6 +400,7 @@ export function LearningStudio({
     const recorder = recorderRef.current;
 
     if (recorder && recorder.state !== "inactive") {
+      clearAutoSubmitRecordingTimer();
       setAttemptStatus("上传评分中");
       recorder.stop();
       return;
@@ -384,6 +413,7 @@ export function LearningStudio({
     const recorder = recorderRef.current;
 
     shouldSubmitRecordingRef.current = false;
+    clearAutoSubmitRecordingTimer();
 
     if (recorder && recorder.state !== "inactive") {
       recorder.stop();
