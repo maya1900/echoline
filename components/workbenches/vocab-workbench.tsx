@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BookMarked, Check, Eye, RotateCcw, Search, Sparkles } from "lucide-react";
+import { BookMarked, CalendarClock, Check, Eye, RotateCcw, Search, Sparkles } from "lucide-react";
 import type { VocabItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -19,41 +19,78 @@ const reviewActions = [
   { quality: "easy", label: "太简单", icon: Sparkles }
 ] as const;
 
+type StatusKey = keyof typeof statusLabels;
+type ReviewNotice = {
+  word: string;
+  dueAt: string;
+  intervalDays: number;
+  status: VocabItem["status"];
+};
+
 export function VocabWorkbench({ items }: { items: VocabItem[] }) {
   const [localItems, setLocalItems] = useState(items);
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<keyof typeof statusLabels>("due");
+  const [status, setStatus] = useState<StatusKey>("due");
   const [reviewingId, setReviewingId] = useState("");
   const [revealedIds, setRevealedIds] = useState<Set<string>>(() => new Set());
+  const [reviewErrors, setReviewErrors] = useState<Record<string, string>>({});
+  const [reviewNotice, setReviewNotice] = useState<ReviewNotice | null>(null);
+
+  const sortedItems = useMemo(() => [...localItems].sort(sortVocabItems), [localItems]);
+  const statusCounts = useMemo(() => getStatusCounts(localItems), [localItems]);
+  const reviewedTodayCount = useMemo(() => localItems.filter(wasReviewedToday).length, [localItems]);
+  const nextDueItem = useMemo(() => sortedItems.find((item) => !item.isDue), [sortedItems]);
 
   const filtered = useMemo(
     () =>
-      localItems.filter((item) => {
+      sortedItems.filter((item) => {
         const matchesStatus = status === "all" || (status === "due" ? item.isDue : item.status === status);
         const matchesQuery = `${item.word} ${item.translation} ${item.contextSentence}`.toLowerCase().includes(query.toLowerCase());
         return matchesStatus && matchesQuery;
       }),
-    [localItems, query, status]
+    [query, sortedItems, status]
   );
-  const dueCount = localItems.filter((item) => item.isDue).length;
+  const dueCount = statusCounts.due;
 
   async function reviewItem(item: VocabItem, reviewQuality: (typeof reviewActions)[number]["quality"]) {
     setReviewingId(item.id);
+    setReviewErrors((current) => {
+      const next = { ...current };
+      delete next[item.id];
+      return next;
+    });
 
     const response = await fetch(`/api/vocab/${item.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reviewQuality })
     }).catch(() => null);
-    const payload = response ? ((await response.json().catch(() => null)) as { data?: VocabItem } | null) : null;
+    const payload = response ? ((await response.json().catch(() => null)) as { data?: VocabItem; error?: string } | null) : null;
 
     if (response?.ok && payload?.data) {
-      setLocalItems((current) => current.map((entry) => (entry.id === item.id ? payload.data! : entry)));
+      const updatedItem = payload.data;
+      setLocalItems((current) => current.map((entry) => (entry.id === item.id ? updatedItem : entry)));
       setRevealedIds((current) => {
         const next = new Set(current);
         next.delete(item.id);
         return next;
       });
+      setReviewErrors((current) => {
+        const next = { ...current };
+        delete next[item.id];
+        return next;
+      });
+      setReviewNotice({
+        word: updatedItem.word,
+        dueAt: updatedItem.dueAt,
+        intervalDays: updatedItem.intervalDays,
+        status: updatedItem.status
+      });
+    } else {
+      setReviewErrors((current) => ({
+        ...current,
+        [item.id]: payload?.error ?? "复习进度保存失败，请稍后重试。"
+      }));
     }
 
     setReviewingId("");
@@ -78,12 +115,12 @@ export function VocabWorkbench({ items }: { items: VocabItem[] }) {
           {Object.entries(statusLabels).map(([key, label]) => (
             <button
               key={key}
-              onClick={() => setStatus(key as keyof typeof statusLabels)}
+              onClick={() => setStatus(key as StatusKey)}
               className={cn("flex h-10 items-center justify-between rounded-md border border-[color:var(--line)] px-3 text-sm", status === key && "ink-action border-[color:var(--ink)]")}
             >
               <span>{label}</span>
               <span className="flex items-center gap-2">
-                {key === "due" ? <span className="text-xs opacity-80">{dueCount}</span> : null}
+                <span className="text-xs opacity-80">{statusCounts[key as StatusKey]}</span>
                 {status === key ? <Check className="h-4 w-4" aria-hidden="true" /> : null}
               </span>
             </button>
@@ -93,15 +130,25 @@ export function VocabWorkbench({ items }: { items: VocabItem[] }) {
 
       <section className="grid gap-3 md:grid-cols-2">
         <div className="rounded-md border border-[color:var(--ink)] bg-[color:var(--paper)] p-4 md:col-span-2">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="font-bold">复习方式：先回忆，再看答案</h2>
-              <p className="mt-1 text-sm leading-6 text-[color:var(--muted)]">先根据单词和例句在脑子里说出中文意思，再点“显示答案”。看完答案后按真实记忆结果安排下次复习。</p>
+              <h2 className="font-bold">复习队列</h2>
+              <p className="mt-1 text-sm leading-6 text-[color:var(--muted)]">先回忆，再看答案；保存结果后会自动安排下次复习。</p>
             </div>
-            <span className="shrink-0 rounded-md border border-[color:var(--line)] px-3 py-2 text-sm font-semibold text-[color:var(--muted)]">
-              到期 {dueCount} 个
-            </span>
+            <div className="grid grid-cols-3 gap-2 lg:min-w-[390px]">
+              <QueueStat label="到期" value={`${dueCount}`} />
+              <QueueStat label="今日已复习" value={`${reviewedTodayCount}`} />
+              <QueueStat label="下一批" value={nextDueItem?.dueAt ?? "暂无"} />
+            </div>
           </div>
+          {reviewNotice ? (
+            <div aria-live="polite" className="mt-4 flex items-start gap-2 rounded-md border border-[color:var(--green)]/35 bg-[rgba(55,122,87,0.08)] px-3 py-2 text-sm leading-6 text-[color:var(--green)]">
+              <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>
+                {reviewNotice.word} 已安排到 {reviewNotice.dueAt}，间隔 {reviewNotice.intervalDays} 天{reviewNotice.status === "mastered" ? "，已归入已掌握" : ""}。
+              </span>
+            </div>
+          ) : null}
         </div>
         {filtered.length === 0 ? (
           <div className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-5 md:col-span-2">
@@ -111,6 +158,7 @@ export function VocabWorkbench({ items }: { items: VocabItem[] }) {
         ) : null}
         {filtered.map((item) => {
           const isRevealed = revealedIds.has(item.id);
+          const reviewError = reviewErrors[item.id];
 
           return (
             <article key={item.id} className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
@@ -165,16 +213,18 @@ export function VocabWorkbench({ items }: { items: VocabItem[] }) {
                       onClick={() => reviewItem(item, quality)}
                       disabled={reviewingId === item.id}
                       className={cn(
-                        "flex h-10 items-center justify-center gap-2 rounded-md border border-[color:var(--line)] text-sm font-semibold disabled:opacity-60",
+                        "flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-md border border-[color:var(--line)] text-xs font-semibold disabled:opacity-60 sm:gap-2 sm:text-sm",
                         quality === "good" && "ink-action border-[color:var(--ink)]"
                       )}
                     >
                       <Icon className="h-4 w-4" aria-hidden="true" />
-                      {reviewingId === item.id ? "更新" : label}
+                      <span className="truncate">{reviewingId === item.id ? "保存中" : label}</span>
                     </button>
                   ))}
                 </div>
               )}
+
+              {reviewError ? <p className="mt-3 rounded-md border border-[color:var(--red)]/30 bg-[rgba(190,68,51,0.08)] px-3 py-2 text-sm text-[color:var(--red)]">{reviewError}</p> : null}
 
               <div className="mt-3 flex items-center gap-2 text-xs text-[color:var(--muted)]">
                 <BookMarked className="h-4 w-4 text-[color:var(--amber)]" aria-hidden="true" />
@@ -186,4 +236,48 @@ export function VocabWorkbench({ items }: { items: VocabItem[] }) {
       </section>
     </div>
   );
+}
+
+function QueueStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-md border border-[color:var(--line)] bg-white/60 px-3 py-2">
+      <span className="block truncate text-xs font-semibold text-[color:var(--muted)]">{label}</span>
+      <span className="mt-1 block truncate text-sm font-bold">{value}</span>
+    </div>
+  );
+}
+
+function getStatusCounts(items: VocabItem[]): Record<StatusKey, number> {
+  return {
+    due: items.filter((item) => item.isDue).length,
+    all: items.length,
+    new: items.filter((item) => item.status === "new").length,
+    learning: items.filter((item) => item.status === "learning").length,
+    mastered: items.filter((item) => item.status === "mastered").length
+  };
+}
+
+function sortVocabItems(left: VocabItem, right: VocabItem) {
+  if (left.isDue !== right.isDue) {
+    return left.isDue ? -1 : 1;
+  }
+
+  return getDueTime(left) - getDueTime(right) || left.word.localeCompare(right.word);
+}
+
+function getDueTime(item: VocabItem) {
+  if (!item.dueAtIso) {
+    return item.isDue ? 0 : Number.MAX_SAFE_INTEGER;
+  }
+
+  const time = new Date(item.dueAtIso).getTime();
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+function wasReviewedToday(item: VocabItem) {
+  if (!item.lastReviewedAt) {
+    return false;
+  }
+
+  return new Date(item.lastReviewedAt).toDateString() === new Date().toDateString();
 }
