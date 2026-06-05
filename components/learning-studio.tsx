@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { BookOpen, ChevronLeft, ChevronRight, Eye, EyeOff, ListVideo, Mic, Pause, Play, Repeat, RotateCcw, Volume2 } from "lucide-react";
+import { convertAudioBlobToWavFile } from "@/lib/audio/wav";
 import type { DictionaryEntry, Episode, LearningMode, RepeatAttempt, Series, SubtitleLine } from "@/lib/types";
 import { cn, msToClock } from "@/lib/utils";
 
@@ -13,6 +14,8 @@ const modes: { id: LearningMode; label: string }[] = [
   { id: "repeat", label: "跟读" },
   { id: "call_response", label: "接下一句" }
 ];
+
+type MicrophoneStatus = "idle" | "checking" | "testing" | "ready" | "quiet" | "blocked" | "unsupported";
 
 function readSubtitleMaskSettings(episodeId: string) {
   const stored = window.localStorage.getItem(`subtitle-mask:${episodeId}`);
@@ -36,13 +39,17 @@ function readSubtitleMaskSettings(episodeId: string) {
 export function LearningStudio({
   episode,
   parentSeries,
-  lines
+  lines,
+  initialLineId
 }: {
   episode: Episode;
   parentSeries: Series;
   lines: SubtitleLine[];
+  initialLineId?: string;
 }) {
   const mediaRef = useRef<HTMLVideoElement>(null);
+  const subtitleQueueRef = useRef<HTMLDivElement>(null);
+  const subtitleButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const shouldSubmitRecordingRef = useRef(true);
@@ -50,7 +57,7 @@ export function LearningStudio({
   const autoRecordLineRef = useRef<string | null>(null);
   const autoSubmitRecordingTimerRef = useRef<number | null>(null);
   const [mode, setMode] = useState<LearningMode>("intensive");
-  const [lineIndex, setLineIndex] = useState(0);
+  const [lineIndex, setLineIndex] = useState(() => Math.max(lines.findIndex((line) => line.id === initialLineId), 0));
   const [showEnglish, setShowEnglish] = useState(true);
   const [showChinese, setShowChinese] = useState(true);
   const [speed, setSpeed] = useState(0.9);
@@ -62,8 +69,12 @@ export function LearningStudio({
   const [mediaUrl, setMediaUrl] = useState(episode.mediaUrl);
   const [mediaError, setMediaError] = useState("");
   const [loopPass, setLoopPass] = useState(0);
+  const [followPlayback, setFollowPlayback] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [isSubmittingAttempt, setIsSubmittingAttempt] = useState(false);
+  const [microphoneStatus, setMicrophoneStatus] = useState<MicrophoneStatus>("idle");
+  const [microphoneMessage, setMicrophoneMessage] = useState("准备后，播放完会自动开始录音。");
+  const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [attempt, setAttempt] = useState<RepeatAttempt | null>(null);
   const [attemptStatus, setAttemptStatus] = useState("");
   const [lookupWord, setLookupWord] = useState<string | null>(null);
@@ -72,13 +83,26 @@ export function LearningStudio({
   const [vocabStatus, setVocabStatus] = useState("");
 
   const current = lines[lineIndex] ?? lines[0];
-  const previous = lines[lineIndex - 1];
+  const next = lines[lineIndex + 1];
+  const targetLine = mode === "call_response" ? next ?? current : current;
+  const playbackLine = current;
+  const hasHiddenCallResponseTarget = mode === "call_response" && Boolean(next) && !attempt;
   const visibleLine = useMemo(() => {
-    if (mode === "call_response" && !attempt) {
-      return previous ?? current;
+    if (hasHiddenCallResponseTarget) {
+      return playbackLine;
     }
-    return current;
-  }, [attempt, current, mode, previous]);
+
+    return targetLine;
+  }, [hasHiddenCallResponseTarget, playbackLine, targetLine]);
+  const microphoneLabel = {
+    idle: "未准备",
+    checking: "检测中",
+    testing: "试音中",
+    ready: "已准备",
+    quiet: "声音偏低",
+    blocked: "需授权",
+    unsupported: "不可用"
+  }[microphoneStatus];
 
   useEffect(() => {
     let active = true;
@@ -110,12 +134,23 @@ export function LearningStudio({
   }, [current.id, mode]);
 
   useEffect(() => {
+    if (!followPlayback) {
+      return;
+    }
+
+    subtitleButtonRefs.current[current.id]?.scrollIntoView({
+      block: "center",
+      behavior: "smooth"
+    });
+  }, [current.id, followPlayback]);
+
+  useEffect(() => {
     const media = mediaRef.current;
 
     if (media && mode !== "rough") {
-      media.currentTime = current.startMs / 1000;
+      media.currentTime = playbackLine.startMs / 1000;
     }
-  }, [current.startMs, mode]);
+  }, [mode, playbackLine.startMs]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -155,8 +190,8 @@ export function LearningStudio({
       setVocabStatus("");
       const params = new URLSearchParams({
         word: lookupWord,
-        englishSentence: current.englishText,
-        chineseSentence: current.chineseText
+        englishSentence: visibleLine.englishText,
+        chineseSentence: visibleLine.chineseText
       });
       const response = await fetch(`/api/define?${params.toString()}`).catch(() => null);
       const payload = response ? ((await response.json().catch(() => null)) as { data?: DictionaryEntry } | null) : null;
@@ -171,7 +206,7 @@ export function LearningStudio({
     return () => {
       active = false;
     };
-  }, [current.chineseText, current.englishText, lookupWord]);
+  }, [lookupWord, visibleLine.chineseText, visibleLine.englishText]);
 
   async function saveProgress(line: SubtitleLine, options: { completed?: boolean; repeatCount?: number; bestScore?: number } = {}) {
     await fetch("/api/progress", {
@@ -228,15 +263,31 @@ export function LearningStudio({
       return;
     }
 
+    const shouldAutoRecord = mode === "repeat" || mode === "call_response";
+
+    if (shouldAutoRecord && microphoneStatus !== "ready") {
+      const isMicrophoneReady = await prepareMicrophone();
+
+      if (!isMicrophoneReady) {
+        return;
+      }
+    }
+
     if (mode !== "rough") {
       const currentMs = media.currentTime * 1000;
-      if (currentMs < current.startMs || currentMs >= current.endMs) {
-        media.currentTime = current.startMs / 1000;
+      const shouldRestartLine = currentMs < playbackLine.startMs || currentMs >= playbackLine.endMs;
+
+      if (shouldRestartLine) {
+        media.currentTime = playbackLine.startMs / 1000;
+      }
+
+      if (mode === "loop" && shouldRestartLine) {
+        setLoopPass(0);
       }
     }
 
     media.playbackRate = speed;
-    autoRecordLineRef.current = mode === "repeat" ? current.id : null;
+    autoRecordLineRef.current = mode === "repeat" || mode === "call_response" ? targetLine.id : null;
 
     try {
       await media.play();
@@ -250,36 +301,64 @@ export function LearningStudio({
   function handleTimeUpdate() {
     const media = mediaRef.current;
 
-    if (!media || mode === "rough") {
+    if (!media) {
       return;
     }
 
     const currentMs = media.currentTime * 1000;
 
-    if (currentMs < current.endMs) {
+    if (mode === "rough") {
+      const activeIndex = findLineIndexAtTime(currentMs);
+
+      if (activeIndex !== lineIndex) {
+        setLineIndex(activeIndex);
+      }
+
+      return;
+    }
+
+    if (currentMs < playbackLine.endMs) {
       return;
     }
 
     if (mode === "loop" && loopPass + 1 < loopCount) {
       setLoopPass((value) => value + 1);
-      media.currentTime = current.startMs / 1000;
+      media.currentTime = playbackLine.startMs / 1000;
       void media.play().catch(() => undefined);
       return;
     }
 
     media.pause();
     setIsPlaying(false);
-    void saveProgress(current, { completed: true, repeatCount: mode === "loop" ? loopCount : 0 });
+    if (mode !== "call_response") {
+      void saveProgress(current, { completed: true, repeatCount: mode === "loop" ? loopCount : 0 });
+    }
 
-    if (mode === "repeat" && autoRecordLineRef.current === current.id && !isRecording && !isSubmittingAttempt) {
+    if ((mode === "repeat" || mode === "call_response") && autoRecordLineRef.current === targetLine.id && !isRecording && !isSubmittingAttempt) {
       autoRecordLineRef.current = null;
-      setAttemptStatus("原句播放完，开始录音");
+      setAttemptStatus(mode === "call_response" ? "提示句播放完，开始录音" : "原句播放完，开始录音");
       void startRecording();
     }
   }
 
+  function findLineIndexAtTime(currentMs: number) {
+    const exactIndex = lines.findIndex((line) => currentMs >= line.startMs && currentMs < line.endMs);
+
+    if (exactIndex >= 0) {
+      return exactIndex;
+    }
+
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      if (currentMs >= lines[index].startMs) {
+        return index;
+      }
+    }
+
+    return 0;
+  }
+
   async function saveVocab() {
-    if (!lookupWord || !current) {
+    if (!lookupWord || !visibleLine) {
       return;
     }
 
@@ -291,9 +370,9 @@ export function LearningStudio({
         word: lookupWord.toLowerCase(),
         phonetic: lookup?.phonetic ?? "",
         translation: lookup?.translation ?? "",
-        contextSentence: current.englishText,
+        contextSentence: visibleLine.englishText,
         episodeId: episode.id,
-        subtitleLineId: current.id
+        subtitleLineId: visibleLine.id
       })
     }).catch(() => null);
 
@@ -314,7 +393,7 @@ export function LearningStudio({
   }
 
   function getAutoSubmitDelayMs() {
-    const lineDuration = Math.max(current.endMs - current.startMs, 0);
+    const lineDuration = Math.max(targetLine.endMs - targetLine.startMs, 0);
 
     return Math.min(Math.max(lineDuration + 1800, 3600), 14000);
   }
@@ -325,12 +404,146 @@ export function LearningStudio({
     return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
   }
 
+  function isMicrophoneSupported() {
+    return Boolean(navigator.mediaDevices?.getUserMedia) && typeof MediaRecorder !== "undefined";
+  }
+
+  function createAudioContext() {
+    const AudioContextConstructor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+    return AudioContextConstructor ? new AudioContextConstructor() : null;
+  }
+
+  function getMicrophoneLevel(data: Uint8Array) {
+    const sum = data.reduce((total, value) => {
+      const centered = (value - 128) / 128;
+
+      return total + centered * centered;
+    }, 0);
+    const rms = Math.sqrt(sum / data.length);
+
+    return Math.min(100, Math.round(rms * 260));
+  }
+
+  async function testMicrophoneInput(stream: MediaStream) {
+    const audioContext = createAudioContext();
+
+    if (!audioContext) {
+      return { detected: true, level: 100, tested: false };
+    }
+
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
+
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
+    const startedAt = Date.now();
+    let maxLevel = 0;
+    let loudSamples = 0;
+    let animationFrame = 0;
+
+    analyser.fftSize = 1024;
+    const data = new Uint8Array(analyser.fftSize);
+    source.connect(analyser);
+
+    return new Promise<{ detected: boolean; level: number; tested: boolean }>((resolve) => {
+      const tick = () => {
+        analyser.getByteTimeDomainData(data);
+        const level = getMicrophoneLevel(data);
+
+        maxLevel = Math.max(maxLevel, level);
+        if (level >= 8) {
+          loudSamples += 1;
+        }
+        setMicrophoneLevel(level);
+
+        if (Date.now() - startedAt >= 2400) {
+          window.cancelAnimationFrame(animationFrame);
+          source.disconnect();
+          void audioContext.close();
+          setMicrophoneLevel(maxLevel);
+          resolve({ detected: maxLevel >= 8 || loudSamples >= 3, level: maxLevel, tested: true });
+          return;
+        }
+
+        animationFrame = window.requestAnimationFrame(tick);
+      };
+
+      tick();
+    });
+  }
+
+  async function prepareMicrophone() {
+    if (!isMicrophoneSupported()) {
+      setMicrophoneStatus("unsupported");
+      setMicrophoneMessage("当前浏览器不支持录音，可使用文本演示评分。");
+      setMicrophoneLevel(0);
+      return false;
+    }
+
+    setMicrophoneStatus("checking");
+    setMicrophoneMessage("正在请求麦克风权限");
+    setMicrophoneLevel(0);
+    setAttemptStatus("正在准备麦克风");
+    let stream: MediaStream | null = null;
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      setMicrophoneStatus("testing");
+      setMicrophoneMessage("试音中，请说一句 hello 或读当前字幕。");
+      const result = await testMicrophoneInput(stream);
+      stream.getTracks().forEach((track) => track.stop());
+
+      if (result.detected) {
+        setMicrophoneStatus("ready");
+        setMicrophoneMessage(result.tested ? "收音正常，播放完会自动录音。" : "麦克风已授权，播放完会自动录音。");
+        setAttemptStatus("");
+        return true;
+      }
+
+      setMicrophoneStatus("quiet");
+      setMicrophoneMessage("没检测到明显声音，请检查麦克风输入或再试一次。");
+      setAttemptStatus("试音没检测到声音，请说一句 hello 后重试");
+      return false;
+    } catch (error) {
+      const isPermissionError = error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "SecurityError");
+      const message = isPermissionError ? "麦克风权限未开启，请在浏览器地址栏允许后重试。" : "没有检测到可用麦克风，请检查设备后重试。";
+
+      stream?.getTracks().forEach((track) => track.stop());
+      setMicrophoneStatus("blocked");
+      setMicrophoneMessage(message);
+      setMicrophoneLevel(0);
+      setAttemptStatus(message);
+      return false;
+    }
+  }
+
+  async function handleRecordButtonClick() {
+    if (isRecording) {
+      stopRecording();
+      return;
+    }
+
+    setAttemptStatus("");
+    if (microphoneStatus !== "ready") {
+      const isMicrophoneReady = await prepareMicrophone();
+
+      if (!isMicrophoneReady) {
+        return;
+      }
+    }
+
+    await startRecording();
+  }
+
   async function startRecording() {
     if (isSubmittingAttempt) {
       return;
     }
 
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    if (!isMicrophoneSupported()) {
       setAttemptStatus("当前浏览器不支持录音，已使用文本演示评分");
       await submitRecording();
       return;
@@ -341,6 +554,8 @@ export function LearningStudio({
       const mimeType = getRecordingMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
 
+      setMicrophoneStatus("ready");
+      setMicrophoneMessage("麦克风已准备，正在录音。");
       recordingChunksRef.current = [];
       shouldSubmitRecordingRef.current = true;
       recordingStreamRef.current = stream;
@@ -355,6 +570,7 @@ export function LearningStudio({
         clearAutoSubmitRecordingTimer();
         stopRecordingTracks();
         setIsRecording(false);
+        setMicrophoneMessage("麦克风已准备，但本次录音失败。");
         setAttemptStatus("录音失败，请重新试一次");
       };
       recorder.onstop = () => {
@@ -368,10 +584,12 @@ export function LearningStudio({
         if (!shouldSubmitRecordingRef.current) {
           recordingChunksRef.current = [];
           shouldSubmitRecordingRef.current = true;
+          setMicrophoneMessage("麦克风已准备，播放完会自动录音。");
           return;
         }
 
         if (audioBlob.size === 0) {
+          setMicrophoneMessage("麦克风已准备，但没有录到声音。");
           setAttemptStatus("没有录到声音，请重新试一次");
           return;
         }
@@ -392,6 +610,8 @@ export function LearningStudio({
       clearAutoSubmitRecordingTimer();
       stopRecordingTracks();
       setIsRecording(false);
+      setMicrophoneStatus("blocked");
+      setMicrophoneMessage("无法使用麦克风，请检查浏览器权限。");
       setAttemptStatus("无法使用麦克风，请检查浏览器权限");
     }
   }
@@ -401,6 +621,7 @@ export function LearningStudio({
 
     if (recorder && recorder.state !== "inactive") {
       clearAutoSubmitRecordingTimer();
+      setMicrophoneMessage("麦克风已准备，正在上传评分。");
       setAttemptStatus("上传评分中");
       recorder.stop();
       return;
@@ -422,6 +643,7 @@ export function LearningStudio({
       recorderRef.current = null;
       setIsRecording(false);
     }
+    setMicrophoneMessage("麦克风已准备，播放完会自动录音。");
   }
 
   async function submitRecording(audioBlob?: Blob) {
@@ -432,13 +654,22 @@ export function LearningStudio({
 
     try {
       if (audioBlob) {
+        let audioFile: File;
+
+        try {
+          audioFile = await convertAudioBlobToWavFile(audioBlob, `repeat-${targetLine.id}.wav`);
+        } catch (error) {
+          setAttemptStatus(error instanceof Error ? error.message : "录音格式转换失败，请重新试一次");
+          return;
+        }
+
         const formData = new FormData();
 
         formData.append("mode", mode);
-        formData.append("targetText", current.englishText);
+        formData.append("targetText", targetLine.englishText);
         formData.append("episodeId", episode.id);
-        formData.append("subtitleLineId", current.id);
-        formData.append("audio", audioBlob, `repeat-${current.id}.webm`);
+        formData.append("subtitleLineId", targetLine.id);
+        formData.append("audio", audioFile, audioFile.name);
         response = await fetch("/api/attempts/score", {
           method: "POST",
           body: formData
@@ -449,9 +680,9 @@ export function LearningStudio({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             mode,
-            targetText: current.englishText,
+            targetText: targetLine.englishText,
             episodeId: episode.id,
-            subtitleLineId: current.id
+            subtitleLineId: targetLine.id
           })
         }).catch(() => null);
       }
@@ -464,11 +695,13 @@ export function LearningStudio({
 
     if (nextAttempt) {
       setAttempt(nextAttempt);
+      setMicrophoneMessage("麦克风已准备，播放完会自动录音。");
       setAttemptStatus("");
-      void saveProgress(current, { completed: true, repeatCount: 1, bestScore: nextAttempt.overall });
+      void saveProgress(targetLine, { completed: true, repeatCount: 1, bestScore: nextAttempt.overall });
       return;
     }
 
+    setMicrophoneMessage("麦克风已准备，本次评分失败。");
     setAttemptStatus(payload?.error ?? "评分失败");
   }
 
@@ -485,7 +718,7 @@ export function LearningStudio({
     <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
       <section className="space-y-4">
         <div className="overflow-hidden rounded-md border border-[color:var(--ink)] bg-[color:var(--panel)]">
-          <div className="relative aspect-video min-h-[420px] overflow-hidden bg-black text-white lg:min-h-[560px]">
+          <div className="relative isolate aspect-video min-h-[420px] overflow-hidden bg-black text-white lg:min-h-[560px]">
             {!mediaUrl ? <img src={parentSeries.coverUrl} alt={parentSeries.title} className="absolute inset-0 h-full w-full object-cover opacity-60" /> : null}
             {mediaUrl ? (
               <video
@@ -541,7 +774,9 @@ export function LearningStudio({
 
           <div className="border-t border-[color:var(--ink)] bg-[color:var(--paper)] px-4 py-4 sm:px-5">
             <div className="mx-auto max-w-5xl text-center">
-              {mode === "call_response" && !attempt ? <p className="mb-2 text-sm font-semibold text-[color:var(--amber)]">听上一句，然后接下一句</p> : null}
+              {mode === "call_response" && !attempt ? (
+                <p className="mb-2 text-sm font-semibold text-[color:var(--amber)]">{next ? "听提示句，然后接下一句；目标句已隐藏" : "已经是最后一句，可练当前句"}</p>
+              ) : null}
               {showEnglish ? (
                 <p className="sentence-font text-2xl font-bold leading-snug sm:text-3xl">
                   {renderClickableWords(visibleLine.englishText, setLookupWord, attempt?.missedWords)}
@@ -616,6 +851,50 @@ export function LearningStudio({
               <div>
                 <h2 className="font-bold">{mode === "repeat" ? "跟读录音" : "接下一句录音"}</h2>
                 <p className="text-sm text-[color:var(--muted)]">V1 只评估内容准确度和完整度，不展示发音或流利度分。</p>
+                <div className="mt-3 flex flex-col gap-3 rounded-md border border-[color:var(--line)] bg-white/55 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span
+                      className={cn(
+                        "mt-1 h-2.5 w-2.5 shrink-0 rounded-full",
+                        microphoneStatus === "ready" && "bg-[color:var(--green)]",
+                        microphoneStatus === "checking" && "animate-pulse bg-[color:var(--amber)]",
+                        microphoneStatus === "testing" && "animate-pulse bg-[color:var(--amber)]",
+                        microphoneStatus === "quiet" && "bg-[color:var(--amber)]",
+                        microphoneStatus === "blocked" && "bg-[color:var(--red)]",
+                        microphoneStatus === "unsupported" && "bg-[color:var(--muted)]",
+                        microphoneStatus === "idle" && "bg-black/25"
+                      )}
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">麦克风{microphoneLabel}</p>
+                      <p className="mt-1 text-xs leading-5 text-[color:var(--muted)]">{microphoneMessage}</p>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/10" role="meter" aria-label="麦克风输入电平" aria-valuemin={0} aria-valuemax={100} aria-valuenow={microphoneLevel}>
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-[width] duration-150",
+                            microphoneStatus === "ready" && "bg-[color:var(--green)]",
+                            (microphoneStatus === "checking" || microphoneStatus === "testing" || microphoneStatus === "quiet") && "bg-[color:var(--amber)]",
+                            (microphoneStatus === "idle" || microphoneStatus === "blocked" || microphoneStatus === "unsupported") && "bg-black/30"
+                          )}
+                          style={{ width: `${microphoneLevel}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void prepareMicrophone()}
+                    disabled={isRecording || isSubmittingAttempt || microphoneStatus === "checking" || microphoneStatus === "testing"}
+                    className={cn(
+                      "flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-[color:var(--line)] px-3 text-sm font-semibold disabled:cursor-wait disabled:opacity-60",
+                      microphoneStatus === "ready" && "ink-action border-[color:var(--ink)]"
+                    )}
+                  >
+                    <Mic className="h-4 w-4" aria-hidden="true" />
+                    {microphoneStatus === "checking" || microphoneStatus === "testing" ? "试音中" : microphoneStatus === "ready" || microphoneStatus === "quiet" ? "重新试音" : "准备麦克风"}
+                  </button>
+                </div>
                 {isRecording ? (
                   <div className="mt-3 flex items-center gap-3 text-sm font-semibold text-[color:var(--red)]">
                     <span className="relative flex h-3 w-3">
@@ -647,15 +926,7 @@ export function LearningStudio({
                   <RotateCcw className="h-4 w-4" aria-hidden="true" />
                 </button>
                 <button
-                  onClick={() => {
-                    if (isRecording) {
-                      stopRecording();
-                      return;
-                    }
-
-                    setAttemptStatus("");
-                    void startRecording();
-                  }}
+                  onClick={() => void handleRecordButtonClick()}
                   disabled={isSubmittingAttempt}
                   className={cn(
                     "relative flex h-11 min-w-36 items-center justify-center gap-2 overflow-hidden rounded-md px-4 font-semibold text-white transition active:scale-[0.98] disabled:cursor-wait disabled:opacity-70",
@@ -712,28 +983,47 @@ export function LearningStudio({
         </div>
 
         <div className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
-          <h2 className="font-bold">字幕队列</h2>
-          <div className="quiet-scrollbar mt-3 max-h-[440px] space-y-2 overflow-y-auto pr-1">
-            {lines.map((line, index) => (
-              <button
-                key={line.id}
-                onClick={() => {
-                  void saveProgress(current, { completed: true });
-                  autoRecordLineRef.current = null;
-                  setLineIndex(index);
-                  setAttempt(null);
-                  setLoopPass(0);
-                  seekToLine(line);
-                }}
-                className={cn("w-full rounded-md border border-[color:var(--line)] p-3 text-left text-sm transition hover:border-[color:var(--ink)]", index === lineIndex && "border-[color:var(--ink)] bg-white")}
-              >
-                <span className="mb-1 block text-xs text-[color:var(--muted)]">
-                  {line.lineIndex}. {msToClock(line.startMs)}
-                </span>
-                <span className="line-clamp-2 font-semibold">{line.englishText}</span>
-                <span className="mt-1 line-clamp-1 text-[color:var(--muted)]">{line.chineseText}</span>
-              </button>
-            ))}
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-bold">字幕队列</h2>
+            <button
+              type="button"
+              onClick={() => setFollowPlayback((value) => !value)}
+              className={cn(
+                "h-9 shrink-0 rounded-md border border-[color:var(--line)] px-3 text-xs font-semibold",
+                followPlayback && "ink-action border-[color:var(--ink)]"
+              )}
+            >
+              {followPlayback ? "跟随播放" : "自由滚动"}
+            </button>
+          </div>
+          <div ref={subtitleQueueRef} className="quiet-scrollbar mt-3 max-h-[440px] space-y-2 overflow-y-auto pr-1">
+            {lines.map((line, index) => {
+              const isHiddenCallResponseTarget = hasHiddenCallResponseTarget && line.id === targetLine.id;
+
+              return (
+                <button
+                  key={line.id}
+                  ref={(element) => {
+                    subtitleButtonRefs.current[line.id] = element;
+                  }}
+                  onClick={() => {
+                    void saveProgress(current, { completed: true });
+                    autoRecordLineRef.current = null;
+                    setLineIndex(index);
+                    setAttempt(null);
+                    setLoopPass(0);
+                    seekToLine(line);
+                  }}
+                  className={cn("w-full rounded-md border border-[color:var(--line)] p-3 text-left text-sm transition hover:border-[color:var(--ink)]", index === lineIndex && "border-[color:var(--ink)] bg-white")}
+                >
+                  <span className="mb-1 block text-xs text-[color:var(--muted)]">
+                    {line.lineIndex}. {msToClock(line.startMs)}
+                  </span>
+                  <span className="line-clamp-2 font-semibold">{isHiddenCallResponseTarget ? "接句目标已隐藏" : line.englishText}</span>
+                  <span className="mt-1 line-clamp-1 text-[color:var(--muted)]">{isHiddenCallResponseTarget ? "提交录音后揭示原句" : line.chineseText}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { AppShell, SectionHeader } from "@/components/app-shell";
 import { LearningStudio } from "@/components/learning-studio";
 import { requireCurrentUser } from "@/lib/auth/require-user";
-import { getEpisode, getSeriesForEpisode, getSubtitlesForEpisode } from "@/lib/data";
+import { getEpisode, getResumeSubtitleLineId, getSeriesForEpisode, getSubtitlesForEpisode } from "@/lib/data";
 
 export default async function LearnPage({
   params
@@ -20,10 +20,12 @@ export default async function LearnPage({
     notFound();
   }
 
+  const resumeLineId = await getResumeSubtitleLineId(episodeId, lines);
+
   return (
     <AppShell active="/series">
       <SectionHeader eyebrow="学习页" title={`${parentSeries.title} · ${episode.title}`} />
-      <LearningStudio episode={episode} parentSeries={parentSeries} lines={lines} />
+      <LearningStudio episode={episode} parentSeries={parentSeries} lines={lines} initialLineId={resumeLineId} />
     </AppShell>
   );
 }

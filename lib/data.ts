@@ -419,6 +419,53 @@ export async function getSubtitlesForEpisode(episodeId: string): Promise<Subtitl
   return (data as DbSubtitleLine[]).map(mapSubtitleLine);
 }
 
+export async function getResumeSubtitleLineId(episodeId: string, lines: SubtitleLine[]): Promise<string | undefined> {
+  const supabase = await createSupabaseServerClient();
+
+  if (!supabase || lines.length === 0) {
+    return lines[0]?.id;
+  }
+
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return lines[0]?.id;
+  }
+
+  const { data, error } = await supabase
+    .from("learning_progress")
+    .select("subtitle_line_id,completed,last_studied_at")
+    .eq("user_id", user.id)
+    .eq("episode_id", episodeId)
+    .order("last_studied_at", { ascending: false })
+    .limit(20);
+
+  if (error || !data || data.length === 0) {
+    return lines[0]?.id;
+  }
+
+  const lineIds = new Set(lines.map((line) => line.id));
+  const latest = data.find((row) => typeof row.subtitle_line_id === "string" && lineIds.has(row.subtitle_line_id));
+
+  if (!latest?.subtitle_line_id) {
+    return lines[0]?.id;
+  }
+
+  const latestIndex = lines.findIndex((line) => line.id === latest.subtitle_line_id);
+
+  if (latestIndex < 0) {
+    return lines[0]?.id;
+  }
+
+  if (latest.completed && latestIndex < lines.length - 1) {
+    return lines[latestIndex + 1].id;
+  }
+
+  return lines[latestIndex].id;
+}
+
 export async function getStudyPlan(): Promise<StudyPlan> {
   const supabase = await createSupabaseServerClient();
 
