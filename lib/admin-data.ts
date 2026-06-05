@@ -23,7 +23,7 @@ export const defaultSiteSettings: SiteSettings = {
   dictionaryAiEnabled: true,
   dictionaryProvider: "bigmodel",
   dictionaryModel: "glm-4-flash",
-  dictionaryApiKeyConfigured: Boolean(process.env.DICTIONARY_AI_API_KEY),
+  dictionaryApiKeyConfigured: false,
   allowPublicSignup: true
 };
 
@@ -92,7 +92,7 @@ export function normalizeSiteSettings(value: Record<string, unknown>): SiteSetti
     dictionaryAiEnabled: readBoolean(value.dictionaryAiEnabled, defaultSiteSettings.dictionaryAiEnabled),
     dictionaryProvider: readString(value.dictionaryProvider, defaultSiteSettings.dictionaryProvider),
     dictionaryModel: readString(value.dictionaryModel, defaultSiteSettings.dictionaryModel),
-    dictionaryApiKeyConfigured: dictionaryApiKeyConfigured || Boolean(process.env.DICTIONARY_AI_API_KEY),
+    dictionaryApiKeyConfigured,
     allowPublicSignup: readBoolean(value.allowPublicSignup, defaultSiteSettings.allowPublicSignup)
   };
 }
@@ -102,9 +102,10 @@ export async function getDictionaryAiSettings() {
 
   if (!supabase) {
     return {
-      provider: process.env.DICTIONARY_AI_PROVIDER ?? defaultSiteSettings.dictionaryProvider,
-      model: process.env.DICTIONARY_AI_MODEL ?? defaultSiteSettings.dictionaryModel,
-      apiKey: process.env.DICTIONARY_AI_API_KEY ?? ""
+      enabled: defaultSiteSettings.dictionaryAiEnabled,
+      provider: defaultSiteSettings.dictionaryProvider,
+      model: defaultSiteSettings.dictionaryModel,
+      apiKey: ""
     };
   }
 
@@ -112,9 +113,10 @@ export async function getDictionaryAiSettings() {
   const value = !error && data ? ((data as SiteSettingsRow).value ?? {}) : {};
 
   return {
-    provider: readString(value.dictionaryProvider, process.env.DICTIONARY_AI_PROVIDER ?? defaultSiteSettings.dictionaryProvider),
-    model: readString(value.dictionaryModel, process.env.DICTIONARY_AI_MODEL ?? defaultSiteSettings.dictionaryModel),
-    apiKey: readString(value.dictionaryApiKey, process.env.DICTIONARY_AI_API_KEY ?? "")
+    enabled: readBoolean(value.dictionaryAiEnabled, defaultSiteSettings.dictionaryAiEnabled),
+    provider: readString(value.dictionaryProvider, defaultSiteSettings.dictionaryProvider),
+    model: readString(value.dictionaryModel, defaultSiteSettings.dictionaryModel),
+    apiKey: readString(value.dictionaryApiKey, "")
   };
 }
 

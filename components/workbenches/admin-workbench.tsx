@@ -1099,7 +1099,7 @@ function SecretField({
       <input
         type="password"
         value={value}
-        placeholder={configured ? "填写新 key 后保存会覆盖当前配置" : "填写 DICTIONARY_AI_API_KEY"}
+        placeholder={configured ? "填写新 key 后保存会覆盖当前配置" : "填写查词服务 API Key"}
         onChange={(event) => onChange(event.target.value)}
         className="h-10 w-full min-w-0 rounded-md border border-[color:var(--line)] bg-white/70 px-3 outline-none focus:border-[color:var(--ink)]"
       />

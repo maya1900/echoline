@@ -57,7 +57,7 @@ recordings
 
 ## 录音转写
 
-`POST /api/attempts/score` 上传录音后，会读取当前登录用户在 `/settings` 的 AI 评分配置，并尝试用 ASR Provider 生成 `transcript`。目前支持 OpenAI：
+`POST /api/attempts/score` 上传录音后，会读取当前登录用户在 `/settings` 的 AI 评分配置，并尝试用 ASR Provider 生成 `transcript`。目前支持 OpenAI 和智谱：
 
 ```bash
 ASR_PROVIDER=openai
@@ -65,16 +65,42 @@ OPENAI_API_KEY=sk-...
 ASR_MODEL=gpt-4o-mini-transcribe
 ```
 
-也可以不写环境变量，直接在设置页填写当前用户自己的 OpenAI API Key。未配置 API Key 时，接口仍会保存录音并使用文本 fallback 完成评分演示。
+或：
 
-现有 Supabase 项目需要给 `profiles` 补充 ASR 字段：
+```bash
+ASR_PROVIDER=zhipu
+ZHIPU_API_KEY=...
+ASR_MODEL=glm-asr-2512
+```
+
+也可以不写环境变量，直接在设置页填写当前用户自己的 ASR API Key。未配置 API Key 时，接口仍会保存录音并使用文本 fallback 完成评分演示。
+
+设置页提供“录音测试”，会调用 `POST /api/settings/asr-test` 上传一段浏览器录制的人声音频，用来验证当前 Provider、Key 和模型是否能返回真实 `transcript`。
+
+现有 Supabase 项目如果是在 ASR 设置前创建的，需要在 SQL Editor 执行 `supabase/patch-asr-settings.sql`。常见报错是：
+
+```text
+Could not find the 'asr_api_key' column of 'profiles' in the schema cache
+```
+
+补丁核心内容：
 
 ```sql
 alter table public.profiles
+  add column if not exists subtitle_language text not null default 'both',
+  add column if not exists default_playback_rate numeric(3,2) not null default 1.00,
+  add column if not exists auto_loop boolean not null default true,
+  add column if not exists ai_scoring_enabled boolean not null default true,
   add column if not exists asr_provider text not null default 'openai',
   add column if not exists asr_model text not null default 'gpt-4o-mini-transcribe',
   add column if not exists asr_api_key text;
 ```
+
+## 查词配置
+
+AI 查词的 Provider、模型和 API Key 以 `/admin` 后台保存到 `site_settings` 的配置为准，不读取 `DICTIONARY_AI_PROVIDER`、`DICTIONARY_AI_MODEL` 或 `DICTIONARY_AI_API_KEY` 环境变量。
+
+本地词典未命中时，只有后台开启“启用 AI 中文释义”且“查词 API Key”已保存，才会调用 AI 兜底。`DICTIONARY_AI_BASE_URL` 只作为开发调试时的底层 endpoint 覆盖，不负责选择查词供应商、模型或密钥。
 
 ## 下一步
 

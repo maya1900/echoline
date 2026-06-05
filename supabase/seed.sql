@@ -1012,7 +1012,13 @@ values
   ('major', '/ˈmeɪdʒər/', '专业；主修', 'I need this for my major.', 'n', 1900),
   ('respect', '/rɪˈspekt/', '尊重；敬重', 'He is a talented musician who I respect.', 'v', 1600),
   ('musician', '/mjuːˈzɪʃən/', '音乐人；乐手', 'He is a talented musician who I respect.', 'n', 3600),
-  ('girlfriend', '/ˈɡɜːrlfrend/', '女朋友', 'She''s not my girlfriend.', 'n', 2400)
+  ('girlfriend', '/ˈɡɜːrlfrend/', '女朋友', 'She''s not my girlfriend.', 'n', 2400),
+  ('okay', '/ˌoʊˈkeɪ/', '好的；可以；没问题', 'Okay, could you, pretty please with sugar on top?', 'interj', 900),
+  ('could', '/kʊd/', '能够；可以；可能', 'Could you help me?', 'modal', 300),
+  ('pretty', '/ˈprɪti/', '漂亮的；相当；颇', 'Pretty please with sugar on top.', 'adv', 1200),
+  ('please', '/pliːz/', '请；使高兴', 'Pretty please with sugar on top.', 'v', 700),
+  ('sugar', '/ˈʃʊɡər/', '糖；甜言蜜语', 'Pretty please with sugar on top.', 'n', 2600),
+  ('top', '/tɑːp/', '顶部；上方；最高处', 'With sugar on top.', 'n', 1000)
 on conflict (word) do update set
   phonetic = excluded.phonetic,
   translation = excluded.translation,

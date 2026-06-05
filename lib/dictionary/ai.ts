@@ -16,6 +16,7 @@ type ExplainResponse = {
 
 async function getDictionaryAiConfig() {
   const settings = await getDictionaryAiSettings();
+  const enabled = settings.enabled;
   const provider = settings.provider;
   const apiKey = settings.apiKey;
   const model = settings.model || (provider === "siliconflow" ? "THUDM/GLM-4-9B-0414" : "glm-4-flash");
@@ -23,7 +24,7 @@ async function getDictionaryAiConfig() {
     process.env.DICTIONARY_AI_BASE_URL ??
     (provider === "siliconflow" ? "https://api.siliconflow.cn/v1/chat/completions" : "https://open.bigmodel.cn/api/paas/v4/chat/completions");
 
-  return { apiKey, baseUrl, model };
+  return { apiKey, baseUrl, enabled, model };
 }
 
 function parseJsonObject(content: string): ExplainResponse | undefined {
@@ -42,16 +43,17 @@ function parseJsonObject(content: string): ExplainResponse | undefined {
 }
 
 export async function explainWordInChinese(input: ExplainInput): Promise<DictionaryEntry | undefined> {
-  const { apiKey, baseUrl, model } = await getDictionaryAiConfig();
+  const { apiKey, baseUrl, enabled, model } = await getDictionaryAiConfig();
 
-  if (!apiKey) {
+  if (!enabled || !apiKey) {
     return undefined;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const attemptTimeoutMs = 9000;
 
-  async function requestExplanation(useJsonMode: boolean) {
+  async function requestExplanation(attemptModel: string, useJsonMode: boolean) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), attemptTimeoutMs);
     const response = await fetch(baseUrl, {
       method: "POST",
       headers: {
@@ -59,14 +61,15 @@ export async function explainWordInChinese(input: ExplainInput): Promise<Diction
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model,
-        temperature: 0.2,
+        model: attemptModel,
+        temperature: 0.1,
+        max_tokens: 220,
         ...(useJsonMode ? { response_format: { type: "json_object" } } : {}),
         messages: [
           {
             role: "system",
             content:
-              "你是面向中文母语英语学习者的查词助手。只输出 JSON，不要 Markdown。字段：translation, partOfSpeech, inContext, note。translation 是 1-3 个中文短释义；inContext 说明该词在当前字幕里的意思，20 字以内；note 是一句学习提醒，30 字以内。"
+              "你是面向中文母语英语学习者的查词助手。只输出紧凑 JSON，不要 Markdown，不要解释推理。字段：translation, partOfSpeech, inContext, note。translation 是当前单词的 1-3 个中文短释义，不要翻译整句；inContext 说明该词在当前字幕里的意思，20 字以内；note 是一句学习提醒，30 字以内。"
           },
           {
             role: "user",
@@ -81,6 +84,8 @@ export async function explainWordInChinese(input: ExplainInput): Promise<Diction
       signal: controller.signal
     }).catch(() => null);
 
+    clearTimeout(timeout);
+
     if (!response?.ok) {
       return undefined;
     }
@@ -91,23 +96,25 @@ export async function explainWordInChinese(input: ExplainInput): Promise<Diction
   }
 
   try {
-    const parsed = (await requestExplanation(true)) ?? (await requestExplanation(false));
+    for (const useJsonMode of [true, false]) {
+      const parsed = await requestExplanation(model, useJsonMode);
 
-    if (!parsed?.translation) {
-      return undefined;
+      if (parsed?.translation) {
+        return {
+          word: input.word,
+          phonetic: "",
+          translation: parsed.translation,
+          definition: input.englishSentence ?? "",
+          partOfSpeech: parsed.partOfSpeech,
+          inContext: parsed.inContext,
+          note: parsed.note,
+          source: "ai"
+        };
+      }
     }
 
-    return {
-      word: input.word,
-      phonetic: "",
-      translation: parsed.translation,
-      definition: input.englishSentence ?? "",
-      partOfSpeech: parsed.partOfSpeech,
-      inContext: parsed.inContext,
-      note: parsed.note,
-      source: "ai"
-    };
-  } finally {
-    clearTimeout(timeout);
+    return undefined;
+  } catch {
+    return undefined;
   }
 }

@@ -515,7 +515,7 @@ export async function countDueVocabItems(): Promise<number> {
     .from("vocab_items")
     .select("id", { count: "exact", head: true })
     .eq("user_id", user.id)
-    .lte("due_at", new Date().toISOString());
+    .or(`due_at.is.null,due_at.lte.${new Date().toISOString()}`);
 
   if (error) {
     return 0;
@@ -544,7 +544,9 @@ export async function listVocabItems(status?: string | null, query = ""): Promis
     .select("id,word,phonetic,translation,context_sentence,status,review_count,ease,interval_days,due_at,last_reviewed_at")
     .eq("user_id", user.id);
 
-  if (status && status !== "all") {
+  if (status === "due") {
+    request = request.or(`due_at.is.null,due_at.lte.${new Date().toISOString()}`);
+  } else if (status && status !== "all") {
     request = request.eq("status", status);
   }
 
