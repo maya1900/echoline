@@ -1,23 +1,17 @@
 import { NextResponse } from "next/server";
-import { bootstrapUserProfile } from "@/lib/auth/bootstrap";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/bootstrap";
+import { hasDatabaseEnv } from "@/lib/db/client";
 
 export async function POST() {
-  const supabase = await createSupabaseServerClient();
-
-  if (!supabase) {
-    return NextResponse.json({ data: { bootstrapped: false, reason: "supabase_not_configured" } });
+  if (!hasDatabaseEnv()) {
+    return NextResponse.json({ data: { bootstrapped: false, reason: "database_not_configured" } });
   }
 
-  const {
-    data: { user },
-    error
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
-  if (error || !user) {
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  await bootstrapUserProfile(user);
   return NextResponse.json({ data: { bootstrapped: true } });
 }

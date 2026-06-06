@@ -1,5 +1,7 @@
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireUserRequest } from "@/lib/auth/api";
+import { profiles } from "@/lib/db/schema";
 import { defaultUserSettings, getCurrentUserSettings } from "@/lib/user-settings";
 
 function readSubtitleLanguage(value: unknown) {
@@ -10,14 +12,6 @@ function readNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function isMissingProfileSettingsColumn(error: { message?: string; code?: string } | null | undefined) {
-  const message = error?.message?.toLowerCase() ?? "";
-
-  return error?.code === "PGRST204" || (message.includes("schema cache") && message.includes("profiles"));
-}
-
-const missingProfileSettingsColumnMessage = "Supabase profiles 表缺少设置字段，请在 SQL Editor 执行 supabase/patch-asr-settings.sql 后再保存。";
-
 export async function GET() {
   const settings = await getCurrentUserSettings();
   return NextResponse.json({ data: settings });
@@ -25,51 +19,36 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const supabase = await createSupabaseServerClient();
+  const auth = await requireUserRequest();
 
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured" }, { status: 503 });
+  if (auth.error) {
+    return auth.error;
   }
 
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { data: currentRow, error: currentRowError } = await supabase.from("profiles").select("asr_api_key").eq("id", user.id).maybeSingle();
-
-  if (isMissingProfileSettingsColumn(currentRowError)) {
-    return NextResponse.json({ error: missingProfileSettingsColumnMessage }, { status: 500 });
-  }
+  const [currentRow] = await auth.db.select({ asrApiKey: profiles.asrApiKey }).from(profiles).where(eq(profiles.id, auth.user.id)).limit(1);
 
   const nextAsrApiKey = typeof body.asrApiKey === "string" ? body.asrApiKey.trim() : "";
-  const update: Record<string, unknown> = {
-    subtitle_language: readSubtitleLanguage(body.subtitleLanguage) ?? defaultUserSettings.subtitleLanguage,
-    default_playback_rate: readNumber(body.defaultPlaybackRate) ?? defaultUserSettings.defaultPlaybackRate,
-    auto_loop: typeof body.autoLoop === "boolean" ? body.autoLoop : defaultUserSettings.autoLoop,
-    ai_scoring_enabled: typeof body.aiScoringEnabled === "boolean" ? body.aiScoringEnabled : defaultUserSettings.aiScoringEnabled,
-    asr_provider: typeof body.asrProvider === "string" && body.asrProvider.trim() ? body.asrProvider.trim() : defaultUserSettings.asrProvider,
-    asr_model: typeof body.asrModel === "string" && body.asrModel.trim() ? body.asrModel.trim() : defaultUserSettings.asrModel,
-    updated_at: new Date().toISOString()
+  const update = {
+    subtitleLanguage: readSubtitleLanguage(body.subtitleLanguage) ?? defaultUserSettings.subtitleLanguage,
+    defaultPlaybackRate: String(readNumber(body.defaultPlaybackRate) ?? defaultUserSettings.defaultPlaybackRate),
+    autoLoop: typeof body.autoLoop === "boolean" ? body.autoLoop : defaultUserSettings.autoLoop,
+    aiScoringEnabled: typeof body.aiScoringEnabled === "boolean" ? body.aiScoringEnabled : defaultUserSettings.aiScoringEnabled,
+    asrProvider: typeof body.asrProvider === "string" && body.asrProvider.trim() ? body.asrProvider.trim() : defaultUserSettings.asrProvider,
+    asrModel: typeof body.asrModel === "string" && body.asrModel.trim() ? body.asrModel.trim() : defaultUserSettings.asrModel,
+    asrApiKey: currentRow?.asrApiKey ?? null,
+    updatedAt: new Date()
   };
 
   if (nextAsrApiKey) {
-    update.asr_api_key = nextAsrApiKey;
-  } else if (typeof currentRow?.asr_api_key === "string" && currentRow.asr_api_key.trim()) {
-    update.asr_api_key = currentRow.asr_api_key;
+    update.asrApiKey = nextAsrApiKey;
+  } else if (typeof currentRow?.asrApiKey === "string" && currentRow.asrApiKey.trim()) {
+    update.asrApiKey = currentRow.asrApiKey;
   }
 
-  const { error } = await supabase.from("profiles").update(update).eq("id", user.id);
-
-  if (error) {
-    if (isMissingProfileSettingsColumn(error)) {
-      return NextResponse.json({ error: missingProfileSettingsColumnMessage }, { status: 500 });
-    }
-
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  try {
+    await auth.db.update(profiles).set(update).where(eq(profiles.id, auth.user.id));
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to save settings" }, { status: 500 });
   }
 
   const settings = await getCurrentUserSettings();

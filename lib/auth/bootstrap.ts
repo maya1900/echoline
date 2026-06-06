@@ -1,75 +1,68 @@
-import type { User } from "@supabase/supabase-js";
-import { getSiteSettings } from "@/lib/admin-data";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { eq } from "drizzle-orm";
+import { getServerSession } from "next-auth";
+import { authOptions, getProfileRole } from "@/lib/auth/config";
+import { bootstrapUserProfile, type CurrentUser } from "@/lib/auth/profile";
+import { getDb } from "@/lib/db/client";
+import { profiles } from "@/lib/db/schema";
 
-export async function bootstrapUserProfile(user: User) {
-  const supabase = await createSupabaseServerClient();
+export { bootstrapUserProfile };
 
-  if (!supabase) {
-    return;
-  }
+export async function getCurrentUser(): Promise<CurrentUser | null> {
+  const session = await getServerSession(authOptions);
+  const sessionUser = session?.user;
 
-  await supabase.from("profiles").upsert({
-    id: user.id,
-    email: user.email,
-    display_name: user.user_metadata?.display_name ?? user.email?.split("@")[0] ?? "Learner"
-  });
-
-  const siteSettings = await getSiteSettings();
-
-  await supabase.from("study_plans").upsert({
-    user_id: user.id,
-    daily_minutes: siteSettings.defaultDailyMinutes,
-    daily_lines: siteSettings.defaultDailyLines,
-    daily_repeats: siteSettings.defaultDailyRepeats,
-    active: true
-  });
-}
-
-export async function getCurrentUser() {
-  const supabase = await createSupabaseServerClient();
-
-  if (!supabase) {
+  if (!sessionUser?.id) {
     return null;
   }
 
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const user = {
+    id: sessionUser.id,
+    email: sessionUser.email ?? null,
+    name: sessionUser.name,
+    image: sessionUser.image
+  };
+
+  const db = getDb();
+
+  if (db) {
+    const [profile] = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
+
+    if (!profile) {
+      await bootstrapUserProfile(user);
+    }
+  }
 
   return user;
 }
 
 export async function getCurrentProfile() {
-  const supabase = await createSupabaseServerClient();
+  const user = await getCurrentUser();
+  const db = getDb();
 
-  if (!supabase) {
+  if (!user || !db) {
     return null;
   }
 
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const [profile] = await db
+    .select({
+      id: profiles.id,
+      email: profiles.email,
+      display_name: profiles.displayName,
+      role: profiles.role
+    })
+    .from(profiles)
+    .where(eq(profiles.id, user.id))
+    .limit(1);
 
-  if (!user) {
-    return null;
-  }
-
-  const { data, error } = await supabase.from("profiles").select("id,email,display_name,role").eq("id", user.id).maybeSingle();
-
-  if (error || !data) {
-    return null;
-  }
-
-  return data as {
-    id: string;
-    email: string | null;
-    display_name: string | null;
-    role: "user" | "admin";
-  };
+  return profile ?? null;
 }
 
 export async function isCurrentUserAdmin() {
-  const profile = await getCurrentProfile();
-  return profile?.role === "admin";
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return false;
+  }
+
+  return (await getProfileRole(user.id)) === "admin";
 }

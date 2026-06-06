@@ -84,7 +84,7 @@ export type DictionaryEntry = {
   partOfSpeech?: string;
   inContext?: string;
   note?: string;
-  source?: "supabase" | "fallback" | "ai" | "missing";
+  source?: "database" | "fallback" | "ai" | "missing";
 };
 
 export type RepeatAttempt = {

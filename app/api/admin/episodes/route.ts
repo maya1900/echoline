@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireAdminRequest } from "@/lib/auth/api";
+import { episodes } from "@/lib/db/schema";
 
 const allowedStatuses = new Set(["draft", "published", "archived"]);
 const allowedMediaExtensions = new Set(["mp4", "webm", "mov", "m4v"]);
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function getMediaBucket() {
-  return process.env.MEDIA_BUCKET?.trim() || "media";
-}
 
 function readPositiveInteger(value: unknown, fallback?: number) {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -34,11 +31,6 @@ function isSafeMediaPath(value: string) {
 
   const extension = parts.at(-1)?.split(".").pop()?.toLowerCase();
   return Boolean(extension && allowedMediaExtensions.has(extension));
-}
-
-function isStorageMediaUrl(mediaUrl: string) {
-  const [bucket, ...pathParts] = mediaUrl.split("/");
-  return bucket === getMediaBucket() && isSafeMediaPath(pathParts.join("/"));
 }
 
 function normalizeMediaUrl(value: unknown) {
@@ -77,7 +69,7 @@ function normalizeMediaUrl(value: unknown) {
     return isSafeMediaPath(mediaUrl.slice("local/".length)) ? mediaUrl : "";
   }
 
-  return isStorageMediaUrl(mediaUrl) ? mediaUrl : "";
+  return "";
 }
 
 export async function POST(request: Request) {
@@ -124,36 +116,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
 
+  const episodeStatus = status as "draft" | "published" | "archived";
+
   if (mediaUrl === "") {
     return NextResponse.json({ error: "Invalid mediaUrl" }, { status: 400 });
   }
 
   if (mediaSource === "storage") {
-    if (!mediaUrl) {
-      return NextResponse.json({ error: "Storage mediaUrl is required" }, { status: 400 });
-    }
-
-    if (!isStorageMediaUrl(mediaUrl)) {
-      return NextResponse.json({ error: "Storage mediaUrl must use the configured media bucket" }, { status: 400 });
-    }
+    return NextResponse.json({ error: "Storage media is no longer supported. Use local media or URL." }, { status: 400 });
   }
 
-  const { data, error } = await admin.supabase
-    .from("episodes")
-    .insert({
-      series_id: seriesId,
-      season_number: seasonNumber,
-      episode_number: episodeNumber,
+  const [data] = await admin.db
+    .insert(episodes)
+    .values({
+      seriesId,
+      seasonNumber,
+      episodeNumber,
       title,
       description,
-      media_url: mediaUrl,
-      duration_seconds: durationSeconds,
-      status
+      mediaUrl,
+      durationSeconds,
+      status: episodeStatus
     })
-    .select("id,series_id,season_number,episode_number,title,description,media_url,duration_seconds,status")
-    .single();
+    .returning();
 
-  if (error || !data) {
+  if (!data) {
     return NextResponse.json({ error: "Failed to create episode" }, { status: 500 });
   }
 

@@ -1,58 +1,40 @@
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireUserRequest } from "@/lib/auth/api";
+import { vocabItems } from "@/lib/db/schema";
 import { calculateVocabReviewUpdate, isVocabReviewQuality } from "@/lib/vocab/review";
 
-type VocabRow = {
-  id: string;
-  word: string;
-  phonetic: string | null;
-  translation: string | null;
-  context_sentence: string | null;
-  status: "new" | "learning" | "mastered";
-  review_count: number;
-  ease: number;
-  interval_days: number;
-  due_at: string | null;
-  last_reviewed_at: string | null;
-};
+type VocabRow = typeof vocabItems.$inferSelect;
 
 const allowedStatuses = new Set(["new", "learning", "mastered"]);
 
 function serializeVocab(row: VocabRow) {
-  const dueDate = row.due_at ? new Date(row.due_at) : null;
+  const dueDate = row.dueAt ? new Date(row.dueAt) : null;
 
   return {
     id: row.id,
     word: row.word,
     phonetic: row.phonetic ?? "",
     translation: row.translation ?? "",
-    contextSentence: row.context_sentence ?? "",
-    status: row.status,
-    reviewCount: row.review_count,
+    contextSentence: row.contextSentence ?? "",
+    status: row.status as "new" | "learning" | "mastered",
+    reviewCount: row.reviewCount,
     dueAt: dueDate ? new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric" }).format(dueDate) : "今天",
-    dueAtIso: row.due_at,
+    dueAtIso: row.dueAt ? row.dueAt.toISOString() : null,
     isDue: !dueDate || dueDate.getTime() <= Date.now(),
     ease: Number(row.ease ?? 2.5),
-    intervalDays: row.interval_days ?? 0,
-    lastReviewedAt: row.last_reviewed_at
+    intervalDays: row.intervalDays ?? 0,
+    lastReviewedAt: row.lastReviewedAt ? row.lastReviewedAt.toISOString() : null
   };
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await request.json().catch(() => null);
-  const supabase = await createSupabaseServerClient();
+  const auth = await requireUserRequest();
 
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured" }, { status: 503 });
-  }
-
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.error) {
+    return auth.error;
   }
 
   if (!body || typeof body !== "object") {
@@ -62,29 +44,41 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const input = body as Record<string, unknown>;
   const hasReviewQuality = Object.hasOwn(input, "reviewQuality");
   const reviewQuality = isVocabReviewQuality(input.reviewQuality) ? input.reviewQuality : null;
-  let updatePayload: Record<string, unknown> = {};
+  let updatePayload: Partial<typeof vocabItems.$inferInsert> = {};
 
   if (hasReviewQuality && !reviewQuality) {
     return NextResponse.json({ error: "Invalid reviewQuality" }, { status: 400 });
   }
 
   if (reviewQuality) {
-    const { data: current, error: readError } = await supabase
-      .from("vocab_items")
-      .select("id,word,phonetic,translation,context_sentence,status,review_count,ease,interval_days,due_at,last_reviewed_at")
-      .eq("id", id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (readError) {
-      return NextResponse.json({ error: readError.message }, { status: 500 });
-    }
+    const [current] = await auth.db
+      .select()
+      .from(vocabItems)
+      .where(and(eq(vocabItems.id, id), eq(vocabItems.userId, auth.user.id)))
+      .limit(1);
 
     if (!current) {
       return NextResponse.json({ error: "Vocab item not found" }, { status: 404 });
     }
 
-    updatePayload = calculateVocabReviewUpdate(current as VocabRow, reviewQuality);
+    const update = calculateVocabReviewUpdate(
+      {
+        review_count: current.reviewCount,
+        ease: current.ease,
+        interval_days: current.intervalDays
+      },
+      reviewQuality
+    );
+
+    updatePayload = {
+      status: update.status,
+      reviewCount: update.review_count,
+      ease: String(update.ease),
+      intervalDays: update.interval_days,
+      dueAt: new Date(update.due_at),
+      lastReviewedAt: new Date(update.last_reviewed_at),
+      updatedAt: new Date()
+    };
   } else {
     const manualPayload = readManualUpdatePayload(input);
 
@@ -99,27 +93,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
   }
 
-  const { data, error } = await supabase
-    .from("vocab_items")
-    .update(updatePayload)
-    .eq("id", id)
-    .eq("user_id", user.id)
-    .select("id,word,phonetic,translation,context_sentence,status,review_count,ease,interval_days,due_at,last_reviewed_at")
-    .maybeSingle();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  const [data] = await auth.db
+    .update(vocabItems)
+    .set(updatePayload)
+    .where(and(eq(vocabItems.id, id), eq(vocabItems.userId, auth.user.id)))
+    .returning();
 
   if (!data) {
     return NextResponse.json({ error: "Vocab item not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ data: serializeVocab(data as VocabRow) });
+  return NextResponse.json({ data: serializeVocab(data) });
 }
 
 function readManualUpdatePayload(input: Record<string, unknown>) {
-  const payload: Record<string, unknown> = {};
+  const payload: Partial<typeof vocabItems.$inferInsert> = { updatedAt: new Date() };
 
   if (Object.hasOwn(input, "translation")) {
     if (typeof input.translation !== "string") {
@@ -152,14 +140,14 @@ function readManualUpdatePayload(input: Record<string, unknown>) {
       return { error: "Invalid reviewCount" };
     }
 
-    payload.review_count = reviewCount;
+    payload.reviewCount = reviewCount;
   }
 
   if (Object.hasOwn(input, "dueAt")) {
     if (input.dueAt === null || input.dueAt === "") {
-      payload.due_at = null;
+      payload.dueAt = null;
     } else if (typeof input.dueAt === "string" && !Number.isNaN(new Date(input.dueAt).getTime())) {
-      payload.due_at = new Date(input.dueAt).toISOString();
+      payload.dueAt = new Date(input.dueAt);
     } else {
       return { error: "Invalid dueAt" };
     }
@@ -170,25 +158,13 @@ function readManualUpdatePayload(input: Record<string, unknown>) {
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createSupabaseServerClient();
+  const auth = await requireUserRequest();
 
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured" }, { status: 503 });
+  if (auth.error) {
+    return auth.error;
   }
 
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { error } = await supabase.from("vocab_items").delete().eq("id", id).eq("user_id", user.id);
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  await auth.db.delete(vocabItems).where(and(eq(vocabItems.id, id), eq(vocabItems.userId, auth.user.id)));
 
   return NextResponse.json({ data: { id, deleted: true } });
 }

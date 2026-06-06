@@ -302,7 +302,7 @@ export function LearningStudio({
       await media.play();
       setMediaError("");
     } catch {
-      setMediaError("当前媒体不可播放，请检查媒体文件或 Supabase Storage 签名。");
+      setMediaError("当前媒体不可播放，请检查本地媒体文件或外部媒体地址。");
       setIsPlaying(false);
     }
   }

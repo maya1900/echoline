@@ -3,23 +3,11 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { requireAdminRequest } from "@/lib/auth/api";
 import { resolveLocalMediaPath } from "@/lib/media/local";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
 const maxMediaBytes = 1024 * 1024 * 1024;
 const allowedExtensions = new Set(["mp4", "webm", "mov", "m4v"]);
-
-type SupabaseAdminClient = NonNullable<ReturnType<typeof createSupabaseAdminClient>>;
-type MediaStorage = "local" | "supabase";
-
-function getMediaBucket() {
-  return process.env.MEDIA_BUCKET?.trim() || "media";
-}
-
-function getMediaStorage(): MediaStorage {
-  return process.env.MEDIA_STORAGE?.trim().toLowerCase() === "local" ? "local" : "supabase";
-}
 
 function getMediaExtension(file: File) {
   const fromName = file.name.split(".").pop()?.toLowerCase();
@@ -62,23 +50,6 @@ function slugifyPathPart(value: string) {
     .slice(0, 80);
 }
 
-async function ensureMediaBucket(supabase: SupabaseAdminClient, bucket: string) {
-  const { data } = await supabase.storage.getBucket(bucket);
-
-  if (data) {
-    return;
-  }
-
-  const { error } = await supabase.storage.createBucket(bucket, {
-    public: false,
-    fileSizeLimit: `${maxMediaBytes}`
-  });
-
-  if (error && !/already exists/i.test(error.message)) {
-    throw new Error(error.message);
-  }
-}
-
 async function saveLocalMedia(file: File, objectPath: string) {
   const resolved = resolveLocalMediaPath(objectPath.split("/"));
 
@@ -114,7 +85,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unsupported media file type" }, { status: 400 });
   }
 
-  const bucket = getMediaBucket();
   const seasonNumber = positiveInt(formData?.get("seasonNumber") ?? null, 1);
   const episodeNumber = positiveInt(formData?.get("episodeNumber") ?? null, 1);
   const title = String(formData?.get("title") ?? "");
@@ -122,54 +92,19 @@ export async function POST(request: Request) {
   const episode = String(episodeNumber).padStart(2, "0");
   const stem = slugifyPathPart(title) || `s${season}e${episode}`;
   const objectPath = `s${season}/${stem}-${crypto.randomUUID().slice(0, 8)}.${extension}`;
-  const mediaStorage = getMediaStorage();
-
-  if (mediaStorage === "local") {
-    try {
-      await saveLocalMedia(file, objectPath);
-    } catch {
-      return NextResponse.json({ error: "Failed to save local media" }, { status: 500 });
-    }
-
-    return NextResponse.json(
-      {
-        data: {
-          bucket: "local",
-          path: objectPath,
-          mediaUrl: `local/${objectPath}`
-        }
-      },
-      { status: 201 }
-    );
-  }
-
-  const supabaseAdmin = createSupabaseAdminClient();
-
-  if (!supabaseAdmin) {
-    return NextResponse.json({ error: "Supabase service role is not configured" }, { status: 503 });
-  }
 
   try {
-    await ensureMediaBucket(supabaseAdmin, bucket);
+    await saveLocalMedia(file, objectPath);
   } catch {
-    return NextResponse.json({ error: "Failed to prepare media bucket" }, { status: 500 });
-  }
-
-  const { error } = await supabaseAdmin.storage.from(bucket).upload(objectPath, file, {
-    contentType: file.type || `video/${extension}`,
-    upsert: false
-  });
-
-  if (error) {
-    return NextResponse.json({ error: "Failed to upload media" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to save local media" }, { status: 500 });
   }
 
   return NextResponse.json(
     {
       data: {
-        bucket,
+        bucket: "local",
         path: objectPath,
-        mediaUrl: `${bucket}/${objectPath}`
+        mediaUrl: `local/${objectPath}`
       }
     },
     { status: 201 }

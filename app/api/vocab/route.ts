@@ -1,38 +1,27 @@
 import { NextResponse } from "next/server";
+import { requireUserRequest } from "@/lib/auth/api";
 import { listVocabItems } from "@/lib/data";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { vocabItems } from "@/lib/db/schema";
 
-type VocabRow = {
-  id: string;
-  word: string;
-  phonetic: string | null;
-  translation: string | null;
-  context_sentence: string | null;
-  status: "new" | "learning" | "mastered";
-  review_count: number;
-  ease: number;
-  interval_days: number;
-  due_at: string | null;
-  last_reviewed_at: string | null;
-};
+type InsertedVocabRow = typeof vocabItems.$inferSelect;
 
-function serializeVocab(row: VocabRow) {
-  const dueDate = row.due_at ? new Date(row.due_at) : null;
+function serializeVocab(row: InsertedVocabRow) {
+  const dueDate = row.dueAt ? new Date(row.dueAt) : null;
 
   return {
     id: row.id,
     word: row.word,
     phonetic: row.phonetic ?? "",
     translation: row.translation ?? "",
-    contextSentence: row.context_sentence ?? "",
-    status: row.status,
-    reviewCount: row.review_count,
+    contextSentence: row.contextSentence ?? "",
+    status: row.status as "new" | "learning" | "mastered",
+    reviewCount: row.reviewCount,
     dueAt: dueDate ? new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric" }).format(dueDate) : "今天",
-    dueAtIso: row.due_at,
+    dueAtIso: row.dueAt ? row.dueAt.toISOString() : null,
     isDue: !dueDate || dueDate.getTime() <= Date.now(),
     ease: Number(row.ease ?? 2.5),
-    intervalDays: row.interval_days ?? 0,
-    lastReviewedAt: row.last_reviewed_at
+    intervalDays: row.intervalDays ?? 0,
+    lastReviewedAt: row.lastReviewedAt ? row.lastReviewedAt.toISOString() : null
   };
 }
 
@@ -47,42 +36,48 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
-  const supabase = await createSupabaseServerClient();
+  const auth = await requireUserRequest();
 
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured" }, { status: 503 });
-  }
-
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.error) {
+    return auth.error;
   }
 
   if (!body.word) {
     return NextResponse.json({ error: "Missing word" }, { status: 400 });
   }
 
-  const { data, error } = await supabase
-    .from("vocab_items")
-    .upsert({
-      user_id: user.id,
-      word: body.word,
-      phonetic: body.phonetic ?? "",
-      translation: body.translation ?? "",
-      context_sentence: body.contextSentence ?? "",
-      episode_id: body.episodeId,
-      subtitle_line_id: body.subtitleLineId,
-      due_at: new Date().toISOString()
-    })
-    .select("id,word,phonetic,translation,context_sentence,status,review_count,ease,interval_days,due_at,last_reviewed_at")
-    .single();
+  const now = new Date();
 
-  if (error || !data) {
-    return NextResponse.json({ error: error?.message ?? "Failed to save vocab item" }, { status: 500 });
+  try {
+    const [data] = await auth.db
+      .insert(vocabItems)
+      .values({
+        userId: auth.user.id,
+        word: body.word,
+        phonetic: body.phonetic ?? "",
+        translation: body.translation ?? "",
+        contextSentence: body.contextSentence ?? "",
+        episodeId: body.episodeId,
+        subtitleLineId: body.subtitleLineId,
+        dueAt: now,
+        updatedAt: now
+      })
+      .onConflictDoUpdate({
+        target: [vocabItems.userId, vocabItems.word],
+        set: {
+          phonetic: body.phonetic ?? "",
+          translation: body.translation ?? "",
+          contextSentence: body.contextSentence ?? "",
+          episodeId: body.episodeId,
+          subtitleLineId: body.subtitleLineId,
+          dueAt: now,
+          updatedAt: now
+        }
+      })
+      .returning();
+
+    return NextResponse.json({ data: serializeVocab(data) }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to save vocab item" }, { status: 500 });
   }
-
-  return NextResponse.json({ data: serializeVocab(data as VocabRow) }, { status: 201 });
 }

@@ -92,7 +92,7 @@ type SubtitleLineResponse = {
 
 type AdminModule = "imports" | "users" | "permissions" | "settings";
 type ImportPanel = "series" | "episode" | "subtitles" | "editor";
-type MediaSource = "local" | "storage" | "url" | "mock";
+type MediaSource = "local" | "url" | "mock";
 
 const statusText = {
   queued: "排队中",
@@ -107,7 +107,6 @@ const genreOptions = ["生活 / 情景", "校园", "职场", "家庭", "旅行",
 const dictionaryProviderOptions = ["bigmodel", "siliconflow"];
 const mediaSources: Array<{ id: MediaSource; label: string; hint: string }> = [
   { id: "local", label: "服务器本地", hint: "local/series/s01e01.mp4" },
-  { id: "storage", label: "私有 Storage", hint: "media/s01/s01e01.mp4" },
   { id: "url", label: "外部 URL", hint: "https://example.com/video.mp4" },
   { id: "mock", label: "Mock", hint: "/api/mock-media/campus/s01e01.mp4" }
 ];
@@ -216,8 +215,8 @@ export function AdminWorkbench({
   async function submitEpisode(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (episodeForm.mediaSource === "storage" && !episodeForm.mediaUrl.trim()) {
-      setMessage("请先上传媒体文件或填写 Storage 路径");
+    if (episodeForm.mediaSource === "local" && !episodeForm.mediaUrl.trim()) {
+      setMessage("请先上传媒体文件或填写本地媒体路径");
       return;
     }
 
@@ -240,7 +239,7 @@ export function AdminWorkbench({
         episodeNumber: current.episodeNumber + 1,
         title: "",
         description: "",
-        mediaUrl: current.mediaSource === "storage" ? "" : current.mediaUrl
+        mediaUrl: current.mediaSource === "local" ? "" : current.mediaUrl
       }));
       setMediaUpload({ isUploading: false, error: "", fileName: "" });
       setMessage("集数已创建");
@@ -272,9 +271,9 @@ export function AdminWorkbench({
     const payload = response ? ((await response.json().catch(() => null)) as { data?: MediaUploadResponse; error?: string } | null) : null;
 
     if (response?.ok && payload?.data?.mediaUrl) {
-      setEpisodeForm((current) => ({ ...current, mediaSource: "storage", mediaUrl: payload.data!.mediaUrl! }));
+      setEpisodeForm((current) => ({ ...current, mediaSource: "local", mediaUrl: payload.data!.mediaUrl! }));
       setMediaUpload({ isUploading: false, error: "", fileName: file.name });
-      setMessage("媒体已上传，Storage 路径已填入");
+      setMessage("媒体已上传，本地路径已填入");
       return;
     }
 
@@ -604,7 +603,7 @@ export function AdminWorkbench({
                       </button>
                     ))}
                   </div>
-                  {episodeForm.mediaSource === "storage" ? (
+                  {episodeForm.mediaSource === "local" ? (
                     <label className="mt-3 grid gap-2 text-sm font-semibold">
                       上传媒体文件
                       <input
@@ -636,7 +635,7 @@ export function AdminWorkbench({
                     </div>
                   </div>
                   <p className="mt-3 rounded-md border border-[color:var(--line)] bg-[color:var(--paper)] px-3 py-2 text-xs leading-5 text-[color:var(--muted)]">
-                    本地媒体使用 local/ 前缀，对应服务器 LOCAL_MEDIA_ROOT 目录；Docker 部署时把视频目录挂载到该路径。Storage 路径仍按 bucket/path 签名播放。
+                    本地媒体使用 local/ 前缀，对应服务器 LOCAL_MEDIA_ROOT 目录；Docker 部署时把视频目录挂载到该路径。
                   </p>
                 </section>
                 <AdvancedFields>
@@ -648,7 +647,7 @@ export function AdminWorkbench({
                   <TextArea label="简介" value={episodeForm.description} onChange={(value) => setEpisodeForm((current) => ({ ...current, description: value }))} />
                 </AdvancedFields>
               </div>
-              <SubmitButton disabled={isSubmitting || mediaUpload.isUploading || !episodeForm.seriesId || (episodeForm.mediaSource === "storage" && !episodeForm.mediaUrl.trim())} label="创建集数" />
+              <SubmitButton disabled={isSubmitting || mediaUpload.isUploading || !episodeForm.seriesId || (episodeForm.mediaSource === "local" && !episodeForm.mediaUrl.trim())} label="创建集数" />
             </form>
           ) : null}
 
@@ -1048,10 +1047,6 @@ function getMediaPathTemplate(
   const season = String(episode.seasonNumber || 1).padStart(2, "0");
   const episodeNumber = String(episode.episodeNumber || 1).padStart(2, "0");
   const stem = slugifyPathPart(episode.title) || `s${season}e${episodeNumber}`;
-
-  if (source === "storage") {
-    return `media/s${season}/${stem}.mp4`;
-  }
 
   if (source === "url") {
     return `https://example.com/s${season}/${stem}.mp4`;

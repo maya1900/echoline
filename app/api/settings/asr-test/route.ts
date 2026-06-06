@@ -1,32 +1,20 @@
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { transcribeRecordingWithDiagnostics } from "@/lib/asr";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireUserRequest } from "@/lib/auth/api";
+import { profiles } from "@/lib/db/schema";
 import { defaultAsrModel, readAsrEnvironmentApiKey } from "@/lib/user-settings";
 
 function readAsrProvider(value: unknown) {
   return value === "zhipu" ? "zhipu" : "openai";
 }
 
-function isMissingProfileSettingsColumn(error: { message?: string; code?: string } | null | undefined) {
-  const message = error?.message?.toLowerCase() ?? "";
-
-  return error?.code === "PGRST204" || (message.includes("schema cache") && message.includes("profiles"));
-}
-
 export async function POST(request: Request) {
   const formData = await request.formData().catch(() => null);
-  const supabase = await createSupabaseServerClient();
+  const auth = await requireUserRequest();
 
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured" }, { status: 503 });
-  }
-
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.error) {
+    return auth.error;
   }
 
   if (!formData) {
@@ -39,13 +27,8 @@ export async function POST(request: Request) {
   const apiKeyInput = formData.get("asrApiKey");
   const model = typeof modelInput === "string" && modelInput.trim() ? modelInput.trim() : defaultAsrModel(provider);
   const inputApiKey = typeof apiKeyInput === "string" ? apiKeyInput.trim() : "";
-  const { data: currentRow, error: currentRowError } = await supabase.from("profiles").select("asr_api_key").eq("id", user.id).maybeSingle();
-
-  if (!inputApiKey && isMissingProfileSettingsColumn(currentRowError)) {
-    return NextResponse.json({ error: "Supabase profiles 表缺少 asr_api_key 字段，请在 SQL Editor 执行 supabase/patch-asr-settings.sql。" }, { status: 500 });
-  }
-
-  const savedApiKey = typeof currentRow?.asr_api_key === "string" ? currentRow.asr_api_key.trim() : "";
+  const [currentRow] = await auth.db.select({ asrApiKey: profiles.asrApiKey }).from(profiles).where(eq(profiles.id, auth.user.id)).limit(1);
+  const savedApiKey = typeof currentRow?.asrApiKey === "string" ? currentRow.asrApiKey.trim() : "";
   const apiKey = inputApiKey || savedApiKey || readAsrEnvironmentApiKey(provider);
 
   if (!apiKey) {

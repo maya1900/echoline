@@ -5,10 +5,6 @@
     max_size 1200MB
   }
 
-  handle_path /supabase/* {
-    reverse_proxy {$SUPABASE_KONG_URL}
-  }
-
   handle {
     reverse_proxy web:3000
   }

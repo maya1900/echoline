@@ -6,16 +6,22 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.10.3",
-    "@supabase/supabase-js": "latest",
+    "@auth/drizzle-adapter": "^1.11.2",
+    "bcryptjs": "^3.0.3",
     "clsx": "latest",
+    "drizzle-orm": "^0.45.2",
     "lucide-react": "latest",
     "next": "latest",
+    "next-auth": "^4.24.14",
+    "postgres": "^3.4.9",
     "react": "latest",
     "react-dom": "latest",
     "tailwind-merge": "latest"
@@ -25,6 +31,7 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "drizzle-kit": "^0.31.10",
     "eslint": "latest",
     "eslint-config-next": "latest",
     "tailwindcss": "latest",

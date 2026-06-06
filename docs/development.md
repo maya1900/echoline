@@ -21,11 +21,11 @@ V1 定位为**个人自用**工具，不向公众分发内容：
 - Framework: Next.js App Router + TypeScript
 - Styling: Tailwind CSS
 - UI: shadcn/ui 风格组件 + lucide-react 图标
-- Auth: 自托管 Supabase Auth
-- Database: 自托管 Supabase Postgres
-- Storage: 服务器本地媒体目录；Supabase Storage 仅作为录音/兼容路径的可选后备
+- Auth: Auth.js 邮箱密码登录 + Linux.do OAuth
+- Database: 自托管 PostgreSQL + Drizzle ORM
+- Storage: 服务器本地媒体目录，视频和录音均保存为 `local/...` 私有路径
 - AI: 服务端可配置 AI Provider，用于录音转写、句子匹配和基础反馈
-- Deploy: 自有服务器 Docker Compose（Next.js + 自托管 Supabase/Postgres + Redis + Caddy）
+- Deploy: 自有服务器 Docker Compose（Next.js + PostgreSQL + Redis + Caddy）
 
 ## 3. 前端设计要求
 
@@ -103,7 +103,7 @@ UI 必须先执行 `frontend-design` skill，再进入具体实现。
 
 采用「本地词典 + AI 语境讲解」双层，兼顾速度、成本与上下文质量：
 
-1. **基础词义 —— 本地词典（ECDICT 子集）**：导入开源中英词典到只读表 `dictionary_entries`，提供中文释义、音标、词性和词形还原。离线、免费、毫秒级、无限流。为适配 Supabase 免费层（DB 500MB），V1 只导入高频词子集，后续可扩充。
+1. **基础词义 —— 本地词典（ECDICT 子集）**：导入开源中英词典到只读表 `dictionary_entries`，提供中文释义、音标、词性和词形还原。离线、免费、毫秒级、无限流。V1 只导入高频词子集，后续可扩充。
 2. **语境讲解 —— AI Provider（按需）**：用户点“在这句里什么意思”时，把“单词 + 当前字幕句”发给已配置的 AI，返回结合上下文的中文解释与用法；结果可写入生词本的 `translation`，避免对同一词重复请求。
 3. **兜底**：本地词典查不到的词直接走 AI；AI 不可用时提示“暂无释义”，仍允许收藏（`translation` 暂空，之后补全）。
 
@@ -114,7 +114,7 @@ UI 必须先执行 `frontend-design` skill，再进入具体实现。
 
 ## 7. 数据模型
 
-数据库 schema 见 [../supabase/schema.sql](../supabase/schema.sql)。
+数据库 schema 见 [../lib/db/schema.ts](../lib/db/schema.ts)，迁移文件见 [../drizzle](../drizzle)。
 
 核心表：
 
@@ -183,11 +183,11 @@ V1 只有“录音 → 转写文本 → 与目标句比对”这一条链路，�
 
 ## 10. 权限与安全
 
-- Supabase RLS 必须开启；自托管时仍使用 Supabase Auth/Postgres/RLS 协议，不直接切到裸 MySQL。
+- 数据库不暴露公网，浏览器不得直连数据库；所有读写都必须经过 Next.js route handlers。
+- 用户权限由服务端应用层鉴权保护：普通接口使用 `requireUserRequest()`，管理接口使用 `requireAdminRequest()`。
 - 普通用户只能读取已发布剧集和自己的学习数据。
 - 管理员通过 `profiles.role = 'admin'` 判断。
 - 剧集媒体默认保存到服务器 `LOCAL_MEDIA_ROOT`，数据库保存 `local/...` 路径，通过登录保护的 `/api/media/local/...` 播放。
-- Supabase Storage 路径仍可兼容，用于已有素材或录音文件。
 - 录音文件可设置生命周期，避免长期占用存储。
 
 ## 11. 里程碑
@@ -201,7 +201,7 @@ V1 只有“录音 → 转写文本 → 与目标句比对”这一条链路，�
 7. 跟读评分：录音、上传、AI mock、评分结果。
 8. 生词本：导入词典子集、字幕查词（本地词典 + AI 兜底）、收藏、生词本浏览与间隔重复复习。
 9. 管理后台：剧集创建、媒体上传、字幕导入、句子编辑。
-10. 验收部署：测试、RLS 检查、自有服务器 Docker 部署。
+10. 验收部署：测试、鉴权检查、数据库迁移和自有服务器 Docker 部署。
 
 ## 12. 验收标准
 

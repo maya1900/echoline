@@ -1,13 +1,7 @@
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { desc, eq } from "drizzle-orm";
+import { getDb } from "@/lib/db/client";
+import { profiles, siteSettings, users } from "@/lib/db/schema";
 import type { AdminUser, SiteSettings } from "@/lib/types";
-
-type ProfileRow = {
-  id: string;
-  email: string | null;
-  display_name: string | null;
-  role: "user" | "admin";
-  created_at: string;
-};
 
 type SiteSettingsRow = {
   value: Record<string, unknown>;
@@ -28,52 +22,65 @@ export const defaultSiteSettings: SiteSettings = {
 };
 
 export async function listAdminUsers(): Promise<AdminUser[]> {
-  const supabase = createSupabaseAdminClient();
+  const db = getDb();
 
-  if (!supabase) {
+  if (!db) {
     return [];
   }
 
-  const [profilesResult, authUsersResult] = await Promise.all([
-    supabase.from("profiles").select("id,email,display_name,role,created_at").order("created_at", { ascending: false }),
-    supabase.auth.admin.listUsers({ page: 1, perPage: 200 })
-  ]);
+  const rows = await db
+    .select({
+      id: profiles.id,
+      email: profiles.email,
+      displayName: profiles.displayName,
+      role: profiles.role,
+      createdAt: profiles.createdAt,
+      lastSignInAt: users.lastSignInAt
+    })
+    .from(profiles)
+    .leftJoin(users, eq(users.id, profiles.id))
+    .orderBy(desc(profiles.createdAt))
+    .limit(200);
 
-  if (profilesResult.error || authUsersResult.error) {
-    return [];
-  }
-
-  const authUsersById = new Map(authUsersResult.data.users.map((user) => [user.id, user]));
-
-  return ((profilesResult.data ?? []) as ProfileRow[]).map((profile) => {
-    const authUser = authUsersById.get(profile.id);
-    const email = profile.email ?? authUser?.email ?? "";
+  return rows.map((profile) => {
+    const email = profile.email ?? "";
 
     return {
       id: profile.id,
       email,
-      displayName: profile.display_name ?? email.split("@")[0] ?? "未命名用户",
+      displayName: profile.displayName ?? email.split("@")[0] ?? "未命名用户",
       role: profile.role,
-      createdAt: formatDateTime(profile.created_at),
-      lastSignInAt: authUser?.last_sign_in_at ? formatDateTime(authUser.last_sign_in_at) : "从未登录"
+      createdAt: formatDateTime(profile.createdAt),
+      lastSignInAt: profile.lastSignInAt ? formatDateTime(profile.lastSignInAt) : "从未登录"
     };
   });
 }
 
 export async function getSiteSettings(): Promise<SiteSettings> {
-  const supabase = createSupabaseAdminClient();
+  const db = getDb();
 
-  if (!supabase) {
+  if (!db) {
     return defaultSiteSettings;
   }
 
-  const { data, error } = await supabase.from("site_settings").select("value").eq("key", "global").maybeSingle();
+  const [data] = await db.select({ value: siteSettings.value }).from(siteSettings).where(eq(siteSettings.key, "global")).limit(1);
 
-  if (error || !data) {
+  if (!data) {
     return defaultSiteSettings;
   }
 
   return normalizeSiteSettings((data as SiteSettingsRow).value);
+}
+
+export async function getRawSiteSettingsValue() {
+  const db = getDb();
+
+  if (!db) {
+    return {};
+  }
+
+  const [data] = await db.select({ value: siteSettings.value }).from(siteSettings).where(eq(siteSettings.key, "global")).limit(1);
+  return (data?.value as Record<string, unknown> | undefined) ?? {};
 }
 
 export function normalizeSiteSettings(value: Record<string, unknown>): SiteSettings {
@@ -98,19 +105,7 @@ export function normalizeSiteSettings(value: Record<string, unknown>): SiteSetti
 }
 
 export async function getDictionaryAiSettings() {
-  const supabase = createSupabaseAdminClient();
-
-  if (!supabase) {
-    return {
-      enabled: defaultSiteSettings.dictionaryAiEnabled,
-      provider: defaultSiteSettings.dictionaryProvider,
-      model: defaultSiteSettings.dictionaryModel,
-      apiKey: ""
-    };
-  }
-
-  const { data, error } = await supabase.from("site_settings").select("value").eq("key", "global").maybeSingle();
-  const value = !error && data ? ((data as SiteSettingsRow).value ?? {}) : {};
+  const value = await getRawSiteSettingsValue();
 
   return {
     enabled: readBoolean(value.dictionaryAiEnabled, defaultSiteSettings.dictionaryAiEnabled),
@@ -132,7 +127,7 @@ function readBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
 }
 
-function formatDateTime(value: string) {
+function formatDateTime(value: Date | string) {
   return new Intl.DateTimeFormat("zh-CN", {
     month: "long",
     day: "numeric",

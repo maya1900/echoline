@@ -1,28 +1,25 @@
-import type { User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getProfileRole } from "@/lib/auth/config";
+import { getCurrentUser } from "@/lib/auth/bootstrap";
+import { getDb, type AppDb } from "@/lib/db/client";
+import type { CurrentUser } from "@/lib/auth/profile";
 
-type SupabaseServerClient = NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>;
-type RequestAuthResult =
-  | { error: NextResponse; supabase: null; user: null }
-  | { error: null; supabase: SupabaseServerClient; user: User };
+type RequestAuthResult = { error: NextResponse; db: null; user: null } | { error: null; db: AppDb; user: CurrentUser };
 
 export async function requireUserRequest(): Promise<RequestAuthResult> {
-  const supabase = await createSupabaseServerClient();
+  const db = getDb();
 
-  if (!supabase) {
-    return { error: NextResponse.json({ error: "Supabase is not configured" }, { status: 503 }), supabase: null, user: null };
+  if (!db) {
+    return { error: NextResponse.json({ error: "Database is not configured" }, { status: 503 }), db: null, user: null };
   }
 
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
-    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), supabase: null, user: null };
+    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), db: null, user: null };
   }
 
-  return { error: null, supabase, user };
+  return { error: null, db, user };
 }
 
 export async function requireAdminRequest(): Promise<RequestAuthResult> {
@@ -32,12 +29,11 @@ export async function requireAdminRequest(): Promise<RequestAuthResult> {
     return auth;
   }
 
-  const { supabase, user } = auth;
-  const { data: profile, error } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  const role = await getProfileRole(auth.user.id);
 
-  if (error || profile?.role !== "admin") {
-    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }), supabase: null, user: null };
+  if (role !== "admin") {
+    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }), db: null, user: null };
   }
 
-  return { error: null, supabase, user };
+  return auth;
 }

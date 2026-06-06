@@ -7,7 +7,7 @@
 - 第一屏直接进入学习工作台，不做营销首页。
 - 支持剧集、集数、字幕行、学习进度和生词本流程。
 - 支持本地媒体目录播放，数据库保存 `local/...` 路径。
-- 支持 Supabase Auth、Postgres、RLS，以及录音/媒体 Storage 兼容路径。
+- 支持 Auth.js 邮箱密码登录、Linux.do OAuth、自托管 PostgreSQL 和 Drizzle 迁移。
 - 跟读评分只展示转写文本、准确度、完整度、漏词、总分和中文短反馈。
 
 V1 不包含支付、会员、社区、公开排行榜或复杂运营后台。
@@ -21,11 +21,11 @@ V1 不包含支付、会员、社区、公开排行榜或复杂运营后台。
   <img alt="Tailwind CSS" src="https://img.shields.io/badge/Tailwind_CSS-0f172a?style=flat-square&logo=tailwindcss&logoColor=38bdf8" />
   <img alt="shadcn/ui" src="https://img.shields.io/badge/shadcn%2Fui-111827?style=flat-square&logo=shadcnui&logoColor=white" />
   <img alt="lucide-react" src="https://img.shields.io/badge/lucide--react-f56565?style=flat-square&logo=lucide&logoColor=white" />
-  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-1f2937?style=flat-square&logo=supabase&logoColor=3ecf8e" />
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-1f2937?style=flat-square&logo=postgresql&logoColor=60a5fa" />
   <img alt="Docker Compose" src="https://img.shields.io/badge/Docker_Compose-1d63ed?style=flat-square&logo=docker&logoColor=white" />
 </p>
 
-Next.js App Router + TypeScript + Tailwind CSS，配合 shadcn/ui 风格组件、lucide-react 图标、Supabase Auth/Postgres/RLS 和 Docker Compose 自托管部署。
+Next.js App Router + TypeScript + Tailwind CSS，配合 shadcn/ui 风格组件、lucide-react 图标、Auth.js、Drizzle ORM、PostgreSQL 和 Docker Compose 自托管部署。
 
 ## 本地开发
 
@@ -59,6 +59,7 @@ http://localhost:3000
 npm run typecheck
 npm run lint
 npm run build
+npm run db:migrate
 ```
 
 ## 媒体目录
@@ -66,7 +67,6 @@ npm run build
 自托管部署推荐使用本地媒体目录：
 
 ```bash
-MEDIA_STORAGE=local
 LOCAL_MEDIA_ROOT=/data/echoline/media
 ```
 
@@ -83,7 +83,7 @@ local/s01/example.mp4
 - 产品与验收要求：[docs/development.md](docs/development.md)
 - 开发计划：[docs/development-plan.md](docs/development-plan.md)
 - UI 方向：[docs/ui.md](docs/ui.md)
-- Supabase 说明：[docs/supabase.md](docs/supabase.md)
+- 鉴权与数据库：[docs/auth-and-database.md](docs/auth-and-database.md)
 - 部署说明：[docs/deployment.md](docs/deployment.md)
 
 ## 许可证

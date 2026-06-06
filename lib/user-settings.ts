@@ -1,14 +1,17 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { eq } from "drizzle-orm";
+import { getCurrentUser } from "@/lib/auth/bootstrap";
+import { getDb } from "@/lib/db/client";
+import { profiles } from "@/lib/db/schema";
 import type { UserSettings } from "@/lib/types";
 
 type ProfileSettingsRow = {
-  subtitle_language: string | null;
-  default_playback_rate: number | null;
-  auto_loop: boolean | null;
-  ai_scoring_enabled: boolean | null;
-  asr_provider?: string | null;
-  asr_model?: string | null;
-  asr_api_key?: string | null;
+  subtitleLanguage: string | null;
+  defaultPlaybackRate: string | number | null;
+  autoLoop: boolean | null;
+  aiScoringEnabled: boolean | null;
+  asrProvider?: string | null;
+  asrModel?: string | null;
+  asrApiKey?: string | null;
 };
 
 export const defaultUserSettings: UserSettings = {
@@ -22,51 +25,48 @@ export const defaultUserSettings: UserSettings = {
 };
 
 export function normalizeUserSettings(row: Partial<ProfileSettingsRow> | null | undefined): UserSettings {
-  const asrProvider = readAsrProvider(row?.asr_provider);
+  const asrProvider = readAsrProvider(row?.asrProvider);
 
   return {
-    subtitleLanguage: readSubtitleLanguage(row?.subtitle_language, defaultUserSettings.subtitleLanguage),
-    defaultPlaybackRate: readNumber(row?.default_playback_rate, defaultUserSettings.defaultPlaybackRate),
-    autoLoop: readBoolean(row?.auto_loop, defaultUserSettings.autoLoop),
-    aiScoringEnabled: readBoolean(row?.ai_scoring_enabled, defaultUserSettings.aiScoringEnabled),
+    subtitleLanguage: readSubtitleLanguage(row?.subtitleLanguage, defaultUserSettings.subtitleLanguage),
+    defaultPlaybackRate: readNumber(row?.defaultPlaybackRate, defaultUserSettings.defaultPlaybackRate),
+    autoLoop: readBoolean(row?.autoLoop, defaultUserSettings.autoLoop),
+    aiScoringEnabled: readBoolean(row?.aiScoringEnabled, defaultUserSettings.aiScoringEnabled),
     asrProvider,
-    asrModel: readString(row?.asr_model, defaultAsrModel(asrProvider)),
-    asrApiKeyConfigured: Boolean(row?.asr_api_key?.trim()) || Boolean(readAsrEnvironmentApiKey(asrProvider))
+    asrModel: readString(row?.asrModel, defaultAsrModel(asrProvider)),
+    asrApiKeyConfigured: Boolean(row?.asrApiKey?.trim()) || Boolean(readAsrEnvironmentApiKey(asrProvider))
   };
 }
 
 export async function getCurrentUserSettings(): Promise<UserSettings> {
-  const supabase = await createSupabaseServerClient();
+  const db = getDb();
+  const user = await getCurrentUser();
 
-  if (!supabase) {
+  if (!db || !user) {
     return defaultUserSettings;
   }
 
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const [data] = await db
+    .select({
+      subtitleLanguage: profiles.subtitleLanguage,
+      defaultPlaybackRate: profiles.defaultPlaybackRate,
+      autoLoop: profiles.autoLoop,
+      aiScoringEnabled: profiles.aiScoringEnabled,
+      asrProvider: profiles.asrProvider,
+      asrModel: profiles.asrModel,
+      asrApiKey: profiles.asrApiKey
+    })
+    .from(profiles)
+    .where(eq(profiles.id, user.id))
+    .limit(1);
 
-  if (!user) {
-    return defaultUserSettings;
-  }
-
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("subtitle_language,default_playback_rate,auto_loop,ai_scoring_enabled,asr_provider,asr_model,asr_api_key")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (error || !data) {
-    return defaultUserSettings;
-  }
-
-  return normalizeUserSettings(data as ProfileSettingsRow);
+  return normalizeUserSettings(data);
 }
 
 export async function getAsrSettingsForUser(userId: string) {
-  const supabase = await createSupabaseServerClient();
+  const db = getDb();
 
-  if (!supabase) {
+  if (!db) {
     return {
       provider: defaultUserSettings.asrProvider,
       model: process.env.ASR_MODEL ?? defaultAsrModel(defaultUserSettings.asrProvider),
@@ -75,13 +75,18 @@ export async function getAsrSettingsForUser(userId: string) {
     };
   }
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("ai_scoring_enabled,asr_provider,asr_model,asr_api_key")
-    .eq("id", userId)
-    .maybeSingle();
+  const [data] = await db
+    .select({
+      aiScoringEnabled: profiles.aiScoringEnabled,
+      asrProvider: profiles.asrProvider,
+      asrModel: profiles.asrModel,
+      asrApiKey: profiles.asrApiKey
+    })
+    .from(profiles)
+    .where(eq(profiles.id, userId))
+    .limit(1);
 
-  if (error || !data) {
+  if (!data) {
     return {
       provider: defaultUserSettings.asrProvider,
       model: process.env.ASR_MODEL ?? defaultAsrModel(defaultUserSettings.asrProvider),
@@ -90,13 +95,13 @@ export async function getAsrSettingsForUser(userId: string) {
     };
   }
 
-  const provider = readAsrProvider(data.asr_provider);
+  const provider = readAsrProvider(data.asrProvider);
 
   return {
     provider,
-    model: readString(data.asr_model, process.env.ASR_MODEL ?? defaultAsrModel(provider)),
-    apiKey: readString(data.asr_api_key, readAsrEnvironmentApiKey(provider)),
-    enabled: readBoolean(data.ai_scoring_enabled, defaultUserSettings.aiScoringEnabled)
+    model: readString(data.asrModel, process.env.ASR_MODEL ?? defaultAsrModel(provider)),
+    apiKey: readString(data.asrApiKey, readAsrEnvironmentApiKey(provider)),
+    enabled: readBoolean(data.aiScoringEnabled, defaultUserSettings.aiScoringEnabled)
   };
 }
 
@@ -121,7 +126,8 @@ function readString(value: unknown, fallback: string) {
 }
 
 function readNumber(value: unknown, fallback: number) {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  const numberValue = typeof value === "string" ? Number(value) : value;
+  return typeof numberValue === "number" && Number.isFinite(numberValue) ? numberValue : fallback;
 }
 
 function readBoolean(value: unknown, fallback: boolean) {

@@ -2,7 +2,7 @@
 
 ## 目标
 
-交付追句 EchoLine 的 V1 学习工作台原型：先用类型化 mock 数据跑通完整学习闭环，再为 Supabase Auth、Postgres、Storage 和 AI 评分留下清晰接入点。
+交付追句 EchoLine 的 V1 学习工作台原型：先用类型化 mock 数据跑通完整学习闭环，再用 Auth.js、Drizzle、PostgreSQL、本地媒体目录和 AI 评分形成自有部署闭环。
 
 ## 阶段一：可运行产品骨架
 
@@ -32,9 +32,9 @@
 
 ## 阶段四：后续后端集成
 
-- 用 Supabase 查询替换 mock 数据，并依赖 RLS 保护用户数据。
-- 支持服务器本地媒体目录播放，并兼容 Supabase 私有 Storage 短期签名媒体 URL。
-- 接入 Supabase Auth 和 profile 角色判断。
+- 用 Drizzle 查询替换 mock 数据，并在 route handlers 中保护用户数据。
+- 支持服务器本地媒体目录播放。
+- 接入 Auth.js 邮箱密码、Linux.do OAuth 和 profile 角色判断。
 - 实现服务端字幕导入解析。
 - 增加 AI Provider 适配器，用于转写和文本级匹配反馈。
 
@@ -43,12 +43,12 @@
 已完成阶段一到阶段三的主要目标，并开始阶段四：
 
 - 页面骨架、学习工作台、核心学习页、生词本、计划、设置和管理员页已成型。
-- 剧集、字幕、进度、计划、生词和管理员数据已切到 Supabase 查询，缺失环境时显示空态。
-- Supabase Auth、profile 角色判断、RLS schema、字幕导入解析和私有媒体签名 URL 接入点已具备。
+- 剧集、字幕、进度、计划、生词和管理员数据已切到 Drizzle/PostgreSQL 查询，缺失环境时显示空态。
+- Auth.js、Linux.do OAuth、profile 角色判断、Drizzle schema、字幕导入解析和私有本地媒体接入点已具备。
 - 查词支持本地词典、兜底词典和可配置 AI 语境讲解。
 - 跟读/接句已支持服务端文本评分 fallback、浏览器录音上传，并可用 OpenAI ASR 转写录音。
 - 生词复习队列已支持三档复习结果、集中间隔重复规则、到期/今日计数和失败提示。
-- 管理页已支持剧集、集数、媒体路径/Storage 上传、字幕导入任务状态和字幕行编辑。
+- 管理页已支持剧集、集数、本地媒体上传、字幕导入任务状态和字幕行编辑。
 
 ## 下一阶段开发计划
 
@@ -56,7 +56,7 @@
 
 1. 验收与部署：跑 `typecheck`、`lint`、`build`，做桌面和移动端学习页冒烟检查。
 2. 登录后冒烟：用真实会话检查生词页复习队列、学习页字幕和录音控件在桌面/移动端的布局。
-3. 部署前收口：确认自托管 Supabase schema/seed、Docker 环境变量、本地媒体目录和 OAuth Redirect URLs 与文档一致。
+3. 部署前收口：确认 Drizzle migrations、Docker 环境变量、本地媒体目录和 Linux.do OAuth Redirect URLs 与文档一致。
 
 ## 验证方式
 

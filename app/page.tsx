@@ -17,7 +17,7 @@ export default async function DashboardPage() {
         <SectionHeader eyebrow="今日学习" title="暂无可学习内容" />
         <section className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-5">
           <h2 className="text-xl font-bold">还没有发布的学习片段</h2>
-          <p className="mt-2 text-sm leading-6 text-[color:var(--muted)]">请先在导入页添加剧集、片段和字幕，或检查 Supabase 数据是否可读。</p>
+          <p className="mt-2 text-sm leading-6 text-[color:var(--muted)]">请先在导入页添加剧集、片段和字幕，或检查数据库内容是否可读。</p>
           <div className="mt-4 flex flex-wrap gap-3">
             <Link href="/admin" className="ink-action flex h-10 items-center gap-2 rounded-md px-3 text-sm font-semibold">
               去导入

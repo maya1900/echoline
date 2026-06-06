@@ -1,8 +1,12 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { transcribeRecordingWithDiagnostics } from "@/lib/asr";
+import { requireUserRequest } from "@/lib/auth/api";
+import { repeatAttempts, subtitleLines } from "@/lib/db/schema";
+import { resolveLocalMediaPath } from "@/lib/media/local";
 import { scoreRepeatAttempt } from "@/lib/scoring/text";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAsrSettingsForUser } from "@/lib/user-settings";
 
 const allowedModes = new Set(["repeat", "call_response"]);
@@ -70,32 +74,7 @@ function extensionForAudio(file: File) {
   return "webm";
 }
 
-async function ensureRecordingBucket(bucket: string) {
-  const adminClient = createSupabaseAdminClient();
-
-  if (!adminClient) {
-    return null;
-  }
-
-  const { data } = await adminClient.storage.getBucket(bucket);
-
-  if (data) {
-    return adminClient;
-  }
-
-  const { error } = await adminClient.storage.createBucket(bucket, {
-    public: false,
-    fileSizeLimit: `${maxRecordingBytes}`
-  });
-
-  if (error && !/already exists/i.test(error.message)) {
-    throw new Error(error.message);
-  }
-
-  return adminClient;
-}
-
-async function saveRecording(input: ScoreInput, userId: string, supabase: NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>) {
+async function saveRecording(input: ScoreInput, userId: string) {
   if (!input.audioFile) {
     return input.audioUrl || null;
   }
@@ -104,23 +83,23 @@ async function saveRecording(input: ScoreInput, userId: string, supabase: NonNul
     throw new Error("Recording is too large");
   }
 
-  const bucket = process.env.RECORDINGS_BUCKET ?? "recordings";
-  const path = `${userId}/${input.episodeId}/${input.subtitleLineId}/${Date.now()}-${crypto.randomUUID()}.${extensionForAudio(input.audioFile)}`;
-  const storageClient = (await ensureRecordingBucket(bucket)) ?? supabase;
-  const { error } = await storageClient.storage.from(bucket).upload(path, input.audioFile, {
-    contentType: input.audioFile.type || "audio/webm",
-    upsert: false
-  });
+  const objectPath = path.join(
+    "recordings",
+    userId,
+    input.episodeId,
+    input.subtitleLineId,
+    `${Date.now()}-${crypto.randomUUID()}.${extensionForAudio(input.audioFile)}`
+  );
+  const resolved = resolveLocalMediaPath(objectPath.split(path.sep));
 
-  if (error) {
-    if (/bucket not found/i.test(error.message)) {
-      return null;
-    }
-
-    throw new Error(error.message);
+  if (!resolved) {
+    throw new Error("Invalid recording path");
   }
 
-  return `${bucket}/${path}`;
+  await mkdir(path.dirname(resolved.filePath), { recursive: true });
+  await writeFile(resolved.filePath, Buffer.from(await input.audioFile.arrayBuffer()), { flag: "wx" });
+
+  return `local/${objectPath}`;
 }
 
 function getAsrFallbackFeedback({
@@ -163,18 +142,10 @@ function getAsrFallbackFeedback({
 
 export async function POST(request: Request) {
   const input = await readScoreInput(request);
-  const supabase = await createSupabaseServerClient();
+  const auth = await requireUserRequest();
 
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured" }, { status: 503 });
-  }
-
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.error) {
+    return auth.error;
   }
 
   if (!input.episodeId || !input.subtitleLineId || !input.targetText.trim()) {
@@ -185,22 +156,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Transcript input is not accepted for scored attempts" }, { status: 400 });
   }
 
-  const { data: subtitleLine, error: subtitleLineError } = await supabase
-    .from("subtitle_lines")
-    .select("english_text")
-    .eq("episode_id", input.episodeId)
-    .eq("id", input.subtitleLineId)
-    .maybeSingle();
-
-  if (subtitleLineError) {
-    return NextResponse.json({ error: "Failed to load subtitle line" }, { status: 500 });
-  }
+  const [subtitleLine] = await auth.db
+    .select({ englishText: subtitleLines.englishText })
+    .from(subtitleLines)
+    .where(and(eq(subtitleLines.episodeId, input.episodeId), eq(subtitleLines.id, input.subtitleLineId)))
+    .limit(1);
 
   if (!subtitleLine) {
     return NextResponse.json({ error: "Subtitle line not found" }, { status: 404 });
   }
 
-  const targetText = typeof subtitleLine.english_text === "string" ? subtitleLine.english_text : "";
+  const targetText = typeof subtitleLine.englishText === "string" ? subtitleLine.englishText : "";
 
   if (!targetText.trim()) {
     return NextResponse.json({ error: "Subtitle line has no English text" }, { status: 400 });
@@ -210,8 +176,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Target text does not match subtitle line" }, { status: 409 });
   }
 
-  const mode = allowedModes.has(input.mode) ? input.mode : "repeat";
-  const asrSettings = await getAsrSettingsForUser(user.id);
+  const mode = (allowedModes.has(input.mode) ? input.mode : "repeat") as "repeat" | "call_response";
+  const asrSettings = await getAsrSettingsForUser(auth.user.id);
   const asrResult = await transcribeRecordingWithDiagnostics({
     file: input.audioFile,
     targetText,
@@ -256,32 +222,37 @@ export async function POST(request: Request) {
   let audioUrl: string | null = null;
 
   try {
-    audioUrl = await saveRecording(input, user.id, supabase);
+    audioUrl = await saveRecording(input, auth.user.id);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to save recording" }, { status: 500 });
   }
 
-  const { data: savedAttempt, error } = await supabase
-    .from("repeat_attempts")
-    .insert({
-      user_id: user.id,
-      episode_id: input.episodeId,
-      subtitle_line_id: input.subtitleLineId,
+  const [savedAttempt] = await auth.db
+    .insert(repeatAttempts)
+    .values({
+      userId: auth.user.id,
+      episodeId: input.episodeId,
+      subtitleLineId: input.subtitleLineId,
       mode,
-      target_text: targetText,
+      targetText,
       transcript: attempt.transcript,
-      audio_url: audioUrl,
+      audioUrl,
       accuracy: attempt.accuracy,
       completeness: attempt.completeness,
       fluency: null,
       overall: attempt.overall,
       feedback: attempt.feedback
     })
-    .select("transcript,accuracy,completeness,overall,feedback")
-    .single();
+    .returning({
+      transcript: repeatAttempts.transcript,
+      accuracy: repeatAttempts.accuracy,
+      completeness: repeatAttempts.completeness,
+      overall: repeatAttempts.overall,
+      feedback: repeatAttempts.feedback
+    });
 
-  if (error || !savedAttempt) {
-    return NextResponse.json({ error: error?.message ?? "Failed to save repeat attempt" }, { status: 500 });
+  if (!savedAttempt) {
+    return NextResponse.json({ error: "Failed to save repeat attempt" }, { status: 500 });
   }
 
   return NextResponse.json({

@@ -36,7 +36,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ data: { mediaUrl: episode.mediaUrl, expiresIn: null } });
   }
 
-  const { supabase } = auth;
   const [bucket, ...pathParts] = episode.mediaUrl.split("/");
   const path = pathParts.join("/");
 
@@ -44,12 +43,5 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Invalid storage media path" }, { status: 400 });
   }
 
-  const expiresIn = 60 * 15;
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn);
-
-  if (error || !data) {
-    return NextResponse.json({ error: "Failed to sign media URL" }, { status: 500 });
-  }
-
-  return NextResponse.json({ data: { mediaUrl: data.signedUrl, expiresIn } });
+  return NextResponse.json({ error: "Storage media paths are no longer supported. Use local media paths." }, { status: 410 });
 }
