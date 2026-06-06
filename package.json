@@ -4,12 +4,12 @@
   "private": true,
   "license": "Apache-2.0",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3789",
     "build": "next build",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "start": "next start",
+    "start": "next start -p 3789",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },

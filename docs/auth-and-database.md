@@ -25,14 +25,14 @@ Scopes: openid profile email
 ```bash
 LINUXDO_CLIENT_ID=...
 LINUXDO_CLIENT_SECRET=...
-NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_URL=http://localhost:3789
 NEXTAUTH_SECRET=replace-with-a-long-random-secret
 ```
 
 回调地址：
 
 ```text
-http://localhost:3000/api/auth/callback/linuxdo
+http://localhost:3789/api/auth/callback/linuxdo
 https://<YOUR_DOMAIN>/api/auth/callback/linuxdo
 ```
 

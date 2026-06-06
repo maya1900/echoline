@@ -50,7 +50,7 @@ npm run dev
 默认访问：
 
 ```text
-http://localhost:3000
+http://localhost:3789
 ```
 
 ## 常用命令

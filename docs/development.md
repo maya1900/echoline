@@ -25,7 +25,7 @@ V1 定位为**个人自用**工具，不向公众分发内容：
 - Database: 自托管 PostgreSQL + Drizzle ORM
 - Storage: 服务器本地媒体目录，视频和录音均保存为 `local/...` 私有路径
 - AI: 服务端可配置 AI Provider，用于录音转写、句子匹配和基础反馈
-- Deploy: 自有服务器 Docker Compose（Next.js + PostgreSQL + Redis + Caddy）
+- Deploy: 自有服务器 Docker Compose（Next.js + PostgreSQL + Redis + Nginx）
 
 ## 3. 前端设计要求
 

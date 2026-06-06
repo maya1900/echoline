@@ -7,8 +7,6 @@ services:
       dockerfile: Dockerfile
     image: echoline:web
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:${WEB_PORT:-3000}:3000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-echoline}:${POSTGRES_PASSWORD:-echoline}@postgres:5432/${POSTGRES_DB:-echoline}}
       HOSTNAME: 0.0.0.0
@@ -67,18 +65,15 @@ services:
     networks:
       - app
 
-  caddy:
-    image: caddy:2-alpine
+  nginx:
+    image: nginx:1.26-alpine
     restart: unless-stopped
     environment:
-      ECHOLINE_DOMAIN: ${ECHOLINE_DOMAIN:-:80}
+      NGINX_SERVER_NAME: ${NGINX_SERVER_NAME:-_}
     ports:
-      - "80:80"
-      - "443:443"
+      - "${WEB_PORT:-3789}:80"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
     depends_on:
       - web
     networks:
@@ -88,7 +83,5 @@ networks:
   app:
 
 volumes:
-  caddy-config:
-  caddy-data:
   postgres-data:
   redis-data:

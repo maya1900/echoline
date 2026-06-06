@@ -8,7 +8,7 @@ V1 推荐部署形态：
 - ORM 与迁移：Drizzle ORM + `drizzle-kit` migrations。
 - 视频与录音：服务器本地私有目录，数据库保存 `local/...` 路径。
 - Redis：随应用栈部署，先作为后续缓存/队列能力预留。
-- 入口代理：Caddy，自动 HTTPS，只反代 Next.js 应用。
+- 入口代理：Nginx，默认通过 `WEB_PORT=3789` 反代 Next.js 应用。
 
 ## 服务器目录
 
@@ -32,15 +32,16 @@ cp .env.production.example .env.production
 最小必填项：
 
 ```bash
-ECHOLINE_DOMAIN=echoline.example.com
+NGINX_SERVER_NAME=echoline.example.com
 ECHOLINE_MEDIA_ROOT=/data/echoline/media
+WEB_PORT=3789
 
 POSTGRES_DB=echoline
 POSTGRES_USER=echoline
 POSTGRES_PASSWORD=change-me
 DATABASE_URL=postgres://echoline:change-me@postgres:5432/echoline
 
-NEXTAUTH_URL=https://echoline.example.com
+NEXTAUTH_URL=http://echoline.example.com:3789
 NEXTAUTH_SECRET=change-to-a-long-random-secret
 
 LINUXDO_CLIENT_ID=...
@@ -53,13 +54,13 @@ REDIS_URL=redis://redis:6379/0
 Linux.do OAuth 应用回调地址：
 
 ```text
-https://echoline.example.com/api/auth/callback/linuxdo
+http://echoline.example.com:3789/api/auth/callback/linuxdo
 ```
 
 本地开发回调地址：
 
 ```text
-http://localhost:3000/api/auth/callback/linuxdo
+http://localhost:3789/api/auth/callback/linuxdo
 ```
 
 ## 数据库迁移
@@ -85,7 +86,7 @@ docker compose --env-file .env.production -f deploy/compose.yml ps
 ```bash
 docker compose --env-file .env.production -f deploy/compose.yml logs -f web
 docker compose --env-file .env.production -f deploy/compose.yml logs -f postgres
-docker compose --env-file .env.production -f deploy/compose.yml logs -f caddy
+docker compose --env-file .env.production -f deploy/compose.yml logs -f nginx
 ```
 
 更新部署：
@@ -99,7 +100,7 @@ docker compose --env-file .env.production -f deploy/compose.yml up -d --build
 
 ## 部署后检查
 
-1. 打开 `https://echoline.example.com`，确认能进入登录页。
+1. 打开 `http://echoline.example.com:3789`，确认能进入登录页。
 2. 用 Linux.do 登录，确认返回工作台。
 3. 首位邮箱注册用户会自动成为 admin；也可以在数据库里手动把 `profiles.role` 改为 `admin`。
 4. 进入 `/admin`，上传一个小视频，确认集数表单得到 `local/...`。
