@@ -38,6 +38,24 @@ function readSubtitleMaskSettings(episodeId: string) {
   }
 }
 
+function shouldIgnoreLearningShortcut(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {
+    return true;
+  }
+
+  const target = event.target;
+
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  if (target.closest("input, textarea, select, [contenteditable='true']")) {
+    return true;
+  }
+
+  return false;
+}
+
 export function LearningStudio({
   episode,
   parentSeries,
@@ -147,8 +165,14 @@ export function LearningStudio({
       return;
     }
 
+    const queueRect = queue.getBoundingClientRect();
+    const activeRect = activeButton.getBoundingClientRect();
+    const activeCenter = activeRect.top - queueRect.top + queue.scrollTop + activeRect.height / 2;
+    const maxScrollTop = Math.max(queue.scrollHeight - queue.clientHeight, 0);
+    const nextScrollTop = Math.min(Math.max(activeCenter - queue.clientHeight / 2, 0), maxScrollTop);
+
     queue.scrollTo({
-      top: activeButton.offsetTop - queue.clientHeight / 2 + activeButton.clientHeight / 2,
+      top: nextScrollTop,
       behavior: "smooth"
     });
   }, [current.id, followPlayback]);
@@ -740,6 +764,48 @@ export function LearningStudio({
     window.localStorage.setItem(`subtitle-mask:${episode.id}`, JSON.stringify({ height, bottom }));
   }
 
+  useEffect(() => {
+    function handleLearningKeyDown(event: KeyboardEvent) {
+      if (shouldIgnoreLearningShortcut(event)) {
+        return;
+      }
+
+      if (event.repeat && event.code !== "Escape") {
+        return;
+      }
+
+      if (event.code === "Escape" && isRecording) {
+        event.preventDefault();
+        cancelRecording();
+        return;
+      }
+
+      if (isRecording || isSubmittingAttempt) {
+        return;
+      }
+
+      if (event.code === "Space") {
+        event.preventDefault();
+        void togglePlayback();
+        return;
+      }
+
+      if (event.code === "ArrowLeft") {
+        event.preventDefault();
+        move(-1);
+        return;
+      }
+
+      if (event.code === "ArrowRight") {
+        event.preventDefault();
+        move(1);
+      }
+    }
+
+    window.addEventListener("keydown", handleLearningKeyDown);
+    return () => window.removeEventListener("keydown", handleLearningKeyDown);
+  });
+
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <section className="min-w-0 space-y-4">
@@ -783,14 +849,14 @@ export function LearningStudio({
               </div>
 
               <div className="mx-auto grid w-full max-w-xs grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-2">
-                <button onClick={() => move(-1)} className="grid h-11 w-11 place-items-center rounded-md border border-white/20 bg-white/10" aria-label="上一句">
+                <button onClick={() => move(-1)} className="grid h-11 w-11 place-items-center rounded-md border border-white/20 bg-white/10" aria-label="上一句" aria-keyshortcuts="ArrowLeft">
                   <ChevronLeft className="h-5 w-5" aria-hidden="true" />
                 </button>
-                <button onClick={togglePlayback} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-md bg-[color:var(--paper)] px-3 font-semibold text-[color:var(--ink)] sm:px-4">
+                <button onClick={togglePlayback} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-md bg-[color:var(--paper)] px-3 font-semibold text-[color:var(--ink)] sm:px-4" aria-label={isPlaying ? "暂停" : "播放"} aria-keyshortcuts="Space">
                   {isPlaying ? <Pause className="h-4 w-4" aria-hidden="true" /> : <Play className="h-4 w-4" aria-hidden="true" />}
                   <span className="whitespace-nowrap">{isPlaying ? "暂停" : "播放"}</span>
                 </button>
-                <button onClick={() => move(1)} className="grid h-11 w-11 place-items-center rounded-md border border-white/20 bg-white/10" aria-label="下一句">
+                <button onClick={() => move(1)} className="grid h-11 w-11 place-items-center rounded-md border border-white/20 bg-white/10" aria-label="下一句" aria-keyshortcuts="ArrowRight">
                   <ChevronRight className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>

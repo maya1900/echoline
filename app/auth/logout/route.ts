@@ -9,7 +9,7 @@ const authCookieNames = [
   "__Host-next-auth.csrf-token"
 ];
 
-export async function POST(request: Request) {
+function clearAuthCookies(request: Request) {
   const response = NextResponse.redirect(new URL("/login", request.url), { status: 303 });
 
   for (const name of authCookieNames) {
@@ -17,4 +17,12 @@ export async function POST(request: Request) {
   }
 
   return response;
+}
+
+export async function GET(request: Request) {
+  return clearAuthCookies(request);
+}
+
+export async function POST(request: Request) {
+  return clearAuthCookies(request);
 }
