@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { BookMarked, CalendarClock, Check, Eye, RotateCcw, Search, Sparkles } from "lucide-react";
+import { SpeakWordButton } from "@/components/speak-word-button";
 import type { VocabItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -163,9 +164,12 @@ export function VocabWorkbench({ items }: { items: VocabItem[] }) {
           return (
             <article key={item.id} className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="truncate text-2xl font-bold">{item.word}</h2>
-                  <p className="mt-1 text-sm text-[color:var(--muted)]">{item.phonetic || "暂无音标"}</p>
+                <div className="flex min-w-0 items-start gap-2">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-2xl font-bold">{item.word}</h2>
+                    <p className="mt-1 text-sm text-[color:var(--muted)]">{item.phonetic || "暂无音标"}</p>
+                  </div>
+                  <SpeakWordButton word={item.word} size="sm" className="mt-0.5" />
                 </div>
                 <span className="shrink-0 rounded border border-[color:var(--line)] px-2 py-1 text-xs font-semibold text-[color:var(--muted)]">{statusLabels[item.status]}</span>
               </div>

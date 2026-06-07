@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { BookOpen, ChevronLeft, ChevronRight, Eye, EyeOff, ListVideo, Mic, Pause, Play, Repeat, RotateCcw, Volume2 } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, Eye, EyeOff, ListVideo, Maximize2, Mic, Minimize2, Pause, Play, Repeat, RotateCcw, Volume2 } from "lucide-react";
+import { SpeakWordButton } from "@/components/speak-word-button";
 import { convertAudioBlobToWavFile } from "@/lib/audio/wav";
 import type { DictionaryEntry, Episode, LearningMode, RepeatAttempt, Series, SubtitleLine } from "@/lib/types";
 import { cn, msToClock } from "@/lib/utils";
@@ -18,6 +19,16 @@ const modes: { id: LearningMode; label: string }[] = [
 const repeatCompletionThreshold = 60;
 
 type MicrophoneStatus = "idle" | "checking" | "testing" | "ready" | "quiet" | "blocked" | "unsupported";
+type FullscreenDocument = Document & {
+  webkitExitFullscreen?: () => Promise<void> | void;
+  webkitFullscreenElement?: Element | null;
+};
+type FullscreenElement = HTMLDivElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+type FullscreenVideoElement = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+};
 
 function readSubtitleMaskSettings(episodeId: string) {
   const stored = window.localStorage.getItem(`subtitle-mask:${episodeId}`);
@@ -67,6 +78,7 @@ export function LearningStudio({
   lines: SubtitleLine[];
   initialLineId?: string;
 }) {
+  const playerFrameRef = useRef<HTMLDivElement>(null);
   const mediaRef = useRef<HTMLVideoElement>(null);
   const subtitleQueueRef = useRef<HTMLDivElement>(null);
   const subtitleButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -101,6 +113,7 @@ export function LearningStudio({
   const [lookup, setLookup] = useState<DictionaryEntry | null>(null);
   const [lookupStatus, setLookupStatus] = useState("");
   const [vocabStatus, setVocabStatus] = useState("");
+  const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
 
   const current = lines[lineIndex] ?? lines[0];
   const next = lines[lineIndex + 1];
@@ -152,6 +165,22 @@ export function LearningStudio({
   useEffect(() => {
     autoRecordLineRef.current = null;
   }, [current.id, mode]);
+
+  useEffect(() => {
+    function syncFullscreenState() {
+      const fullscreenDocument = document as FullscreenDocument;
+      const fullscreenElement = document.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement ?? null;
+
+      setIsPlayerFullscreen(Boolean(playerFrameRef.current && fullscreenElement === playerFrameRef.current));
+    }
+
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    document.addEventListener("webkitfullscreenchange", syncFullscreenState);
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+      document.removeEventListener("webkitfullscreenchange", syncFullscreenState);
+    };
+  }, []);
 
   useEffect(() => {
     if (!followPlayback) {
@@ -279,7 +308,7 @@ export function LearningStudio({
     stopRecordingTracks();
     setIsRecording(false);
     setLineIndex(nextIndex);
-    seekToLine(lines[nextIndex]);
+    void startPlaybackForIndex(nextIndex, { forceFromStart: true });
   }
 
   async function togglePlayback() {
@@ -296,7 +325,62 @@ export function LearningStudio({
       return;
     }
 
+    await startPlaybackForIndex(lineIndex);
+  }
+
+  async function togglePlayerFullscreen() {
+    const frame = playerFrameRef.current as FullscreenElement | null;
+
+    if (!frame) {
+      return;
+    }
+
+    const fullscreenDocument = document as FullscreenDocument;
+    const isFullscreen = Boolean(document.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement);
+
+    try {
+      if (isFullscreen) {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else {
+          await fullscreenDocument.webkitExitFullscreen?.();
+        }
+      } else if (frame.requestFullscreen) {
+        await frame.requestFullscreen();
+      } else if (frame.webkitRequestFullscreen) {
+        await frame.webkitRequestFullscreen();
+      } else {
+        const video = mediaRef.current as FullscreenVideoElement | null;
+
+        if (!video?.webkitEnterFullscreen) {
+          setMediaError("当前浏览器不支持全屏播放。");
+          return;
+        }
+
+        video.webkitEnterFullscreen();
+      }
+
+      setMediaError("");
+    } catch {
+      setMediaError("无法进入全屏，请检查浏览器权限或手动使用系统全屏。");
+    }
+  }
+
+  async function startPlaybackForIndex(index: number, { forceFromStart = false }: { forceFromStart?: boolean } = {}) {
+    const media = mediaRef.current;
+    const line = lines[index] ?? lines[0];
+
+    if (!line) {
+      return;
+    }
+
+    if (!media) {
+      setIsPlaying(true);
+      return;
+    }
+
     const shouldAutoRecord = mode === "repeat" || mode === "call_response";
+    const lineTarget = mode === "call_response" ? lines[index + 1] ?? line : line;
 
     if (shouldAutoRecord && microphoneStatus !== "ready") {
       const isMicrophoneReady = await prepareMicrophone();
@@ -308,19 +392,21 @@ export function LearningStudio({
 
     if (mode !== "rough") {
       const currentMs = media.currentTime * 1000;
-      const shouldRestartLine = currentMs < playbackLine.startMs || currentMs >= playbackLine.endMs;
+      const shouldRestartLine = forceFromStart || currentMs < line.startMs || currentMs >= line.endMs;
 
       if (shouldRestartLine) {
-        media.currentTime = playbackLine.startMs / 1000;
+        media.currentTime = line.startMs / 1000;
       }
 
       if (mode === "loop" && shouldRestartLine) {
         setLoopPass(0);
       }
+    } else if (forceFromStart) {
+      media.currentTime = line.startMs / 1000;
     }
 
     media.playbackRate = speed;
-    autoRecordLineRef.current = mode === "repeat" || mode === "call_response" ? targetLine.id : null;
+    autoRecordLineRef.current = shouldAutoRecord ? lineTarget.id : null;
 
     try {
       await media.play();
@@ -810,7 +896,7 @@ export function LearningStudio({
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <section className="min-w-0 space-y-4">
         <div className="overflow-hidden rounded-md border border-[color:var(--ink)] bg-[color:var(--panel)]">
-          <div className="relative isolate h-[320px] overflow-hidden bg-black text-white sm:h-[420px] lg:h-[560px]">
+          <div ref={playerFrameRef} className={cn("relative isolate overflow-hidden bg-black text-white", isPlayerFullscreen ? "h-screen" : "h-[320px] sm:h-[420px] lg:h-[560px]")}>
             {!mediaUrl ? <img src={parentSeries.coverUrl} alt={parentSeries.title} className="absolute inset-0 h-full w-full object-cover opacity-60" /> : null}
             {mediaUrl ? (
               <video
@@ -845,7 +931,18 @@ export function LearningStudio({
                   </p>
                   <h1 className="mt-1 text-2xl font-bold">{episode.title}</h1>
                 </div>
-                <span className="rounded-md border border-white/20 px-3 py-1 text-sm">{msToClock(current.startMs)} - {msToClock(current.endMs)}</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="rounded-md border border-white/20 px-3 py-1 text-sm">{msToClock(current.startMs)} - {msToClock(current.endMs)}</span>
+                  <button
+                    type="button"
+                    onClick={() => void togglePlayerFullscreen()}
+                    className="grid h-9 w-9 place-items-center rounded-md border border-white/20 bg-white/10 text-white transition hover:border-white/45 hover:bg-white/15"
+                    aria-label={isPlayerFullscreen ? "退出全屏" : "全屏播放"}
+                    title={isPlayerFullscreen ? "退出全屏" : "全屏播放"}
+                  >
+                    {isPlayerFullscreen ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+                  </button>
+                </div>
               </div>
 
               <div className="mx-auto grid w-full max-w-xs grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-2">
@@ -1126,8 +1223,13 @@ export function LearningStudio({
           </div>
           {lookupWord ? (
             <div className="mt-3 rounded-md border border-[color:var(--line)] p-3">
-              <p className="text-xl font-bold">{lookupWord}</p>
-              <p className="mt-1 text-sm text-[color:var(--muted)]">{lookup?.phonetic ?? "暂无音标"}</p>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-xl font-bold">{lookupWord}</p>
+                  <p className="mt-1 text-sm text-[color:var(--muted)]">{lookup?.phonetic ?? "暂无音标"}</p>
+                </div>
+                <SpeakWordButton word={lookup?.word ?? lookupWord} />
+              </div>
               <p className="mt-3 text-base font-semibold leading-6">{lookupStatus || lookup?.translation || "暂无释义"}</p>
               {lookup?.inContext ? (
                 <p className="mt-3 rounded-md bg-white/70 p-3 text-sm leading-6">
