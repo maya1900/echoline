@@ -364,6 +364,24 @@ export async function listSeries(): Promise<Series[]> {
   return hydrateSeriesProgress(mappedSeries, user.id, db);
 }
 
+export async function getLastStudiedEpisodeId(episodeIds: string[]): Promise<string | undefined> {
+  const db = getDb();
+  const user = await getCurrentUser();
+
+  if (!db || !user || episodeIds.length === 0) {
+    return undefined;
+  }
+
+  const [data] = await db
+    .select({ episodeId: learningProgress.episodeId })
+    .from(learningProgress)
+    .where(and(eq(learningProgress.userId, user.id), inArray(learningProgress.episodeId, episodeIds)))
+    .orderBy(desc(learningProgress.lastStudiedAt))
+    .limit(1);
+
+  return data?.episodeId ?? undefined;
+}
+
 export async function getEpisode(id: string): Promise<Episode | undefined> {
   const db = getDb();
 

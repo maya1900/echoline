@@ -8,7 +8,15 @@ import { cn } from "@/lib/utils";
 
 type Mode = "login" | "signup";
 
-export function LoginForm({ nextPath = "/", allowSignup = true }: { nextPath?: string; allowSignup?: boolean }) {
+export function LoginForm({
+  nextPath = "/",
+  allowSignup = true,
+  linuxDoDisabledReason
+}: {
+  nextPath?: string;
+  allowSignup?: boolean;
+  linuxDoDisabledReason?: string;
+}) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
@@ -63,6 +71,11 @@ export function LoginForm({ nextPath = "/", allowSignup = true }: { nextPath?: s
   }
 
   async function handleLinuxDoLogin() {
+    if (linuxDoDisabledReason) {
+      setMessage(linuxDoDisabledReason);
+      return;
+    }
+
     setIsSubmitting(true);
     setMessage("");
     await signIn("linuxdo", { callbackUrl: nextPath });
@@ -97,7 +110,7 @@ export function LoginForm({ nextPath = "/", allowSignup = true }: { nextPath?: s
       <button
         type="button"
         onClick={() => void handleLinuxDoLogin()}
-        disabled={isSubmitting}
+        disabled={isSubmitting || Boolean(linuxDoDisabledReason)}
         className="flex h-11 items-center justify-center gap-2 rounded-md border border-[color:var(--line)] bg-white/55 text-sm font-semibold transition hover:border-[color:var(--ink)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
       >
         <KeyRound className="h-4 w-4" aria-hidden="true" />

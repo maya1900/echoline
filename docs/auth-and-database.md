@@ -36,6 +36,11 @@ http://localhost:3789/api/auth/callback/linuxdo
 https://<YOUR_DOMAIN>/api/auth/callback/linuxdo
 ```
 
+如果回调地址正确但登录页显示 `OAuthCallback`，优先检查两件事：
+
+- 打开站点的地址要和 `NEXTAUTH_URL` 完全一致，不要混用 `localhost` 和 `127.0.0.1`。
+- Linux.do 的 token/userinfo 请求由 Next.js 服务端发起，启动服务的终端也必须能访问 `https://connect.linux.do`。如果浏览器走代理而终端不走代理，需在启动 `npm run dev` 前配置终端代理；Node 22+ 可使用 `NODE_OPTIONS=--use-env-proxy` 配合 `HTTPS_PROXY`/`HTTP_PROXY`。
+
 身份绑定使用 Auth.js `accounts.provider + accounts.provider_account_id`，不要只依赖邮箱。
 
 ## 邮箱密码
