@@ -9,8 +9,13 @@ const authCookieNames = [
   "__Host-next-auth.csrf-token"
 ];
 
-function clearAuthCookies(request: Request) {
-  const response = NextResponse.redirect(new URL("/login", request.url), { status: 303 });
+function clearAuthCookies() {
+  const response = new NextResponse(null, {
+    status: 303,
+    headers: {
+      Location: "/login"
+    }
+  });
 
   for (const name of authCookieNames) {
     response.cookies.set(name, "", { maxAge: 0, path: "/" });
@@ -19,10 +24,10 @@ function clearAuthCookies(request: Request) {
   return response;
 }
 
-export async function GET(request: Request) {
-  return clearAuthCookies(request);
+export async function GET() {
+  return clearAuthCookies();
 }
 
-export async function POST(request: Request) {
-  return clearAuthCookies(request);
+export async function POST() {
+  return clearAuthCookies();
 }
