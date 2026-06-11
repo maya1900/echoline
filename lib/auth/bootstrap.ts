@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getServerSession } from "next-auth";
+import { cache } from "react";
 import { authOptions, getProfileRole } from "@/lib/auth/config";
 import { bootstrapUserProfile, type CurrentUser } from "@/lib/auth/profile";
 import { getDb } from "@/lib/db/client";
@@ -7,7 +8,7 @@ import { profiles } from "@/lib/db/schema";
 
 export { bootstrapUserProfile };
 
-export async function getCurrentUser(): Promise<CurrentUser | null> {
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const session = await getServerSession(authOptions);
   const sessionUser = session?.user;
 
@@ -33,9 +34,9 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   }
 
   return user;
-}
+});
 
-export async function getCurrentProfile() {
+export const getCurrentProfile = cache(async () => {
   const user = await getCurrentUser();
   const db = getDb();
 
@@ -55,9 +56,9 @@ export async function getCurrentProfile() {
     .limit(1);
 
   return profile ?? null;
-}
+});
 
-export async function isCurrentUserAdmin() {
+export const isCurrentUserAdmin = cache(async () => {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -65,4 +66,4 @@ export async function isCurrentUserAdmin() {
   }
 
   return (await getProfileRole(user.id)) === "admin";
-}
+});

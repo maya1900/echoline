@@ -2,7 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { ArrowRight } from "lucide-react";
 import { LoginForm } from "@/components/auth/login-form";
-import { getSiteSettings } from "@/lib/admin-data";
+import { canRegisterLocalAccount } from "@/lib/admin-data";
 
 const authErrorMessages: Record<string, string> = {
   OAuthSignin: "无法跳转到 Linux.do，请检查 OAuth 配置。",
@@ -61,7 +61,7 @@ export default async function LoginPage({
   const { error, next } = await searchParams;
   const requestHeaders = await headers();
   const nextPath = next?.startsWith("/") && !next.startsWith("//") ? next : "/";
-  const siteSettings = await getSiteSettings();
+  const allowSignup = await canRegisterLocalAccount();
   const requestOrigin = getRequestOrigin(requestHeaders);
   const authOrigin = getAuthOrigin();
   const errorMessage = formatAuthError(error, authOrigin);
@@ -92,7 +92,7 @@ export default async function LoginPage({
         ) : null}
         <LoginForm
           nextPath={nextPath}
-          allowSignup={siteSettings.allowPublicSignup}
+          allowSignup={allowSignup}
           linuxDoDisabledReason={hasAuthOriginMismatch ? `请先用 ${authOrigin} 打开本站再使用 Linux.do 登录。` : undefined}
         />
       </section>

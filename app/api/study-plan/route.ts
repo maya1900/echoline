@@ -3,24 +3,40 @@ import { requireUserRequest } from "@/lib/auth/api";
 import { getStudyPlan } from "@/lib/data";
 import { studyPlans } from "@/lib/db/schema";
 
-export async function GET() {
-  const studyPlan = await getStudyPlan();
-  return NextResponse.json({ data: studyPlan });
+function readInteger(value: unknown, fallback: number, min: number, max: number) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  const parsed = typeof value === "number" ? value : Number(value);
+
+  return Number.isInteger(parsed) ? Math.min(Math.max(parsed, min), max) : fallback;
 }
 
-export async function POST(request: Request) {
-  const studyPlan = await getStudyPlan();
-  const body = await request.json().catch(() => ({}));
+export async function GET() {
   const auth = await requireUserRequest();
 
   if (auth.error) {
     return auth.error;
   }
 
+  const studyPlan = await getStudyPlan();
+  return NextResponse.json({ data: studyPlan });
+}
+
+export async function POST(request: Request) {
+  const auth = await requireUserRequest();
+
+  if (auth.error) {
+    return auth.error;
+  }
+
+  const studyPlan = await getStudyPlan();
+  const body = await request.json().catch(() => ({}));
   const nextPlan = {
-    dailyMinutes: body.dailyMinutes ?? studyPlan.dailyMinutes,
-    dailyLines: body.dailyLines ?? studyPlan.dailyLines,
-    dailyRepeats: body.dailyRepeats ?? studyPlan.dailyRepeats
+    dailyMinutes: readInteger(body.dailyMinutes, studyPlan.dailyMinutes, 5, 240),
+    dailyLines: readInteger(body.dailyLines, studyPlan.dailyLines, 1, 500),
+    dailyRepeats: readInteger(body.dailyRepeats, studyPlan.dailyRepeats, 0, 500)
   };
   const now = new Date();
 

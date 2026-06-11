@@ -5,6 +5,7 @@ import type { NextAuthOptions, Profile, TokenSet } from "next-auth";
 import type { Adapter } from "next-auth/adapters";
 import CredentialsProvider from "next-auth/providers/credentials";
 import type { OAuthConfig } from "next-auth/providers/oauth";
+import { cache } from "react";
 import { getDb } from "@/lib/db/client";
 import { accounts, profiles, sessions, users, verificationTokens } from "@/lib/db/schema";
 import { bootstrapUserProfile, touchUserSignIn } from "@/lib/auth/profile";
@@ -407,7 +408,7 @@ export const authOptions: NextAuthOptions = {
   }
 };
 
-export async function getProfileRole(userId: string) {
+export const getProfileRole = cache(async (userId: string) => {
   const database = getDb();
 
   if (!database) {
@@ -416,4 +417,4 @@ export async function getProfileRole(userId: string) {
 
   const [profile] = await database.select({ role: profiles.role }).from(profiles).where(eq(profiles.id, userId)).limit(1);
   return profile?.role ?? null;
-}
+});

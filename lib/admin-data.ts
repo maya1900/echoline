@@ -1,6 +1,7 @@
-import { desc, eq } from "drizzle-orm";
+import { count, desc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { profiles, siteSettings, users } from "@/lib/db/schema";
+import { hasStoredSecretValue, openSecretValue } from "@/lib/secret-values";
 import type { AdminUser, SiteSettings } from "@/lib/types";
 
 type SiteSettingsRow = {
@@ -18,7 +19,7 @@ export const defaultSiteSettings: SiteSettings = {
   dictionaryProvider: "bigmodel",
   dictionaryModel: "glm-4-flash",
   dictionaryApiKeyConfigured: false,
-  allowPublicSignup: true
+  allowPublicSignup: false
 };
 
 export async function listAdminUsers(): Promise<AdminUser[]> {
@@ -72,6 +73,23 @@ export async function getSiteSettings(): Promise<SiteSettings> {
   return normalizeSiteSettings((data as SiteSettingsRow).value);
 }
 
+export async function canRegisterLocalAccount() {
+  const db = getDb();
+
+  if (!db) {
+    return false;
+  }
+
+  const [{ value: userCount }] = await db.select({ value: count() }).from(users);
+
+  if (userCount === 0) {
+    return true;
+  }
+
+  const siteSettings = await getSiteSettings();
+  return siteSettings.allowPublicSignup;
+}
+
 export async function getRawSiteSettingsValue() {
   const db = getDb();
 
@@ -84,10 +102,7 @@ export async function getRawSiteSettingsValue() {
 }
 
 export function normalizeSiteSettings(value: Record<string, unknown>): SiteSettings {
-  const dictionaryApiKeyConfigured = readBoolean(
-    value.dictionaryApiKeyConfigured,
-    typeof value.dictionaryApiKey === "string" && value.dictionaryApiKey.trim().length > 0
-  );
+  const dictionaryApiKeyConfigured = hasStoredSecretValue(value.dictionaryApiKey) || readBoolean(value.dictionaryApiKeyConfigured, false);
 
   return {
     appName: readString(value.appName, defaultSiteSettings.appName),
@@ -111,7 +126,7 @@ export async function getDictionaryAiSettings() {
     enabled: readBoolean(value.dictionaryAiEnabled, defaultSiteSettings.dictionaryAiEnabled),
     provider: readString(value.dictionaryProvider, defaultSiteSettings.dictionaryProvider),
     model: readString(value.dictionaryModel, defaultSiteSettings.dictionaryModel),
-    apiKey: readString(value.dictionaryApiKey, "")
+    apiKey: readString(openSecretValue(value.dictionaryApiKey), "")
   };
 }
 

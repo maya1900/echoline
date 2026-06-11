@@ -8,6 +8,10 @@ type VocabRow = typeof vocabItems.$inferSelect;
 
 const allowedStatuses = new Set(["new", "learning", "mastered"]);
 
+function trimText(value: string, maxLength: number) {
+  return value.trim().slice(0, maxLength);
+}
+
 function serializeVocab(row: VocabRow) {
   const dueDate = row.dueAt ? new Date(row.dueAt) : null;
 
@@ -30,12 +34,13 @@ function serializeVocab(row: VocabRow) {
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await request.json().catch(() => null);
   const auth = await requireUserRequest();
 
   if (auth.error) {
     return auth.error;
   }
+
+  const body = await request.json().catch(() => null);
 
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
@@ -114,7 +119,7 @@ function readManualUpdatePayload(input: Record<string, unknown>) {
       return { error: "Invalid translation" };
     }
 
-    payload.translation = input.translation.trim();
+    payload.translation = trimText(input.translation, 500);
   }
 
   if (Object.hasOwn(input, "note")) {
@@ -122,7 +127,7 @@ function readManualUpdatePayload(input: Record<string, unknown>) {
       return { error: "Invalid note" };
     }
 
-    payload.note = typeof input.note === "string" ? input.note.trim() : null;
+    payload.note = typeof input.note === "string" ? trimText(input.note, 1000) : null;
   }
 
   if (Object.hasOwn(input, "status")) {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { defaultSiteSettings, getRawSiteSettingsValue, getSiteSettings, normalizeSiteSettings } from "@/lib/admin-data";
 import { requireAdminRequest } from "@/lib/auth/api";
 import { siteSettings } from "@/lib/db/schema";
+import { canSealSecretValue, isEncryptedSecretValue, sealSecretValue } from "@/lib/secret-values";
 
 export async function GET() {
   const admin = await requireAdminRequest();
@@ -28,10 +29,15 @@ export async function PATCH(request: Request) {
   const nextApiKey = typeof body.dictionaryApiKey === "string" ? body.dictionaryApiKey.trim() : "";
 
   if (nextApiKey) {
-    nextValue.dictionaryApiKey = nextApiKey;
+    if (!canSealSecretValue()) {
+      return NextResponse.json({ error: "API Key 加密密钥未配置，请先设置 API_KEY_ENCRYPTION_SECRET 或使用环境变量配置词典 Key。" }, { status: 500 });
+    }
+
+    nextValue.dictionaryApiKey = sealSecretValue(nextApiKey);
     nextValue.dictionaryApiKeyConfigured = true;
   } else if (typeof currentValue.dictionaryApiKey === "string" && currentValue.dictionaryApiKey.trim()) {
-    nextValue.dictionaryApiKey = currentValue.dictionaryApiKey;
+    const currentApiKey = currentValue.dictionaryApiKey.trim();
+    nextValue.dictionaryApiKey = canSealSecretValue() && !isEncryptedSecretValue(currentApiKey) ? sealSecretValue(currentApiKey) : currentApiKey;
     nextValue.dictionaryApiKeyConfigured = true;
   } else {
     delete nextValue.dictionaryApiKey;

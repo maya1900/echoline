@@ -34,4 +34,10 @@ export function getDb() {
   return cachedDb;
 }
 
+export async function closeDb() {
+  await cachedSql?.end();
+  cachedSql = undefined;
+  cachedDb = undefined;
+}
+
 export type AppDb = NonNullable<ReturnType<typeof getDb>>;

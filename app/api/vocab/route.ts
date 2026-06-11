@@ -5,6 +5,14 @@ import { vocabItems } from "@/lib/db/schema";
 
 type InsertedVocabRow = typeof vocabItems.$inferSelect;
 
+function readText(value: unknown, maxLength: number) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim().slice(0, maxLength);
+}
+
 function serializeVocab(row: InsertedVocabRow) {
   const dueDate = row.dueAt ? new Date(row.dueAt) : null;
 
@@ -26,6 +34,12 @@ function serializeVocab(row: InsertedVocabRow) {
 }
 
 export async function GET(request: Request) {
+  const auth = await requireUserRequest();
+
+  if (auth.error) {
+    return auth.error;
+  }
+
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
   const query = searchParams.get("q")?.toLowerCase() ?? "";
@@ -35,14 +49,20 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({}));
   const auth = await requireUserRequest();
 
   if (auth.error) {
     return auth.error;
   }
 
-  if (!body.word) {
+  const body = await request.json().catch(() => ({}));
+
+  const word = readText(body.word, 80).toLowerCase();
+  const phonetic = readText(body.phonetic, 100);
+  const translation = readText(body.translation, 500);
+  const contextSentence = readText(body.contextSentence, 600);
+
+  if (!word) {
     return NextResponse.json({ error: "Missing word" }, { status: 400 });
   }
 
@@ -53,10 +73,10 @@ export async function POST(request: Request) {
       .insert(vocabItems)
       .values({
         userId: auth.user.id,
-        word: body.word,
-        phonetic: body.phonetic ?? "",
-        translation: body.translation ?? "",
-        contextSentence: body.contextSentence ?? "",
+        word,
+        phonetic,
+        translation,
+        contextSentence,
         episodeId: body.episodeId,
         subtitleLineId: body.subtitleLineId,
         dueAt: now,
@@ -65,9 +85,9 @@ export async function POST(request: Request) {
       .onConflictDoUpdate({
         target: [vocabItems.userId, vocabItems.word],
         set: {
-          phonetic: body.phonetic ?? "",
-          translation: body.translation ?? "",
-          contextSentence: body.contextSentence ?? "",
+          phonetic,
+          translation,
+          contextSentence,
           episodeId: body.episodeId,
           subtitleLineId: body.subtitleLineId,
           dueAt: now,

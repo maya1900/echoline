@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth/bootstrap";
 import { getDb } from "@/lib/db/client";
 import { profiles } from "@/lib/db/schema";
+import { hasStoredSecretValue, openSecretValue } from "@/lib/secret-values";
 import type { UserSettings } from "@/lib/types";
 
 type ProfileSettingsRow = {
@@ -34,7 +35,7 @@ export function normalizeUserSettings(row: Partial<ProfileSettingsRow> | null | 
     aiScoringEnabled: readBoolean(row?.aiScoringEnabled, defaultUserSettings.aiScoringEnabled),
     asrProvider,
     asrModel: readString(row?.asrModel, defaultAsrModel(asrProvider)),
-    asrApiKeyConfigured: Boolean(row?.asrApiKey?.trim()) || Boolean(readAsrEnvironmentApiKey(asrProvider))
+    asrApiKeyConfigured: hasStoredSecretValue(row?.asrApiKey) || Boolean(readAsrEnvironmentApiKey(asrProvider))
   };
 }
 
@@ -100,7 +101,7 @@ export async function getAsrSettingsForUser(userId: string) {
   return {
     provider,
     model: readString(data.asrModel, process.env.ASR_MODEL ?? defaultAsrModel(provider)),
-    apiKey: readString(data.asrApiKey, readAsrEnvironmentApiKey(provider)),
+    apiKey: readString(openSecretValue(data.asrApiKey), readAsrEnvironmentApiKey(provider)),
     enabled: readBoolean(data.aiScoringEnabled, defaultUserSettings.aiScoringEnabled)
   };
 }

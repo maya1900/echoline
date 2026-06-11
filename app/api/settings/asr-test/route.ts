@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { transcribeRecordingWithDiagnostics } from "@/lib/asr";
 import { requireUserRequest } from "@/lib/auth/api";
 import { profiles } from "@/lib/db/schema";
+import { openSecretValue } from "@/lib/secret-values";
 import { defaultAsrModel, readAsrEnvironmentApiKey } from "@/lib/user-settings";
 
 function readAsrProvider(value: unknown) {
@@ -10,12 +11,13 @@ function readAsrProvider(value: unknown) {
 }
 
 export async function POST(request: Request) {
-  const formData = await request.formData().catch(() => null);
   const auth = await requireUserRequest();
 
   if (auth.error) {
     return auth.error;
   }
+
+  const formData = await request.formData().catch(() => null);
 
   if (!formData) {
     return NextResponse.json({ error: "请录制一段测试音频后再测试转写" }, { status: 400 });
@@ -28,7 +30,7 @@ export async function POST(request: Request) {
   const model = typeof modelInput === "string" && modelInput.trim() ? modelInput.trim() : defaultAsrModel(provider);
   const inputApiKey = typeof apiKeyInput === "string" ? apiKeyInput.trim() : "";
   const [currentRow] = await auth.db.select({ asrApiKey: profiles.asrApiKey }).from(profiles).where(eq(profiles.id, auth.user.id)).limit(1);
-  const savedApiKey = typeof currentRow?.asrApiKey === "string" ? currentRow.asrApiKey.trim() : "";
+  const savedApiKey = openSecretValue(currentRow?.asrApiKey);
   const apiKey = inputApiKey || savedApiKey || readAsrEnvironmentApiKey(provider);
 
   if (!apiKey) {

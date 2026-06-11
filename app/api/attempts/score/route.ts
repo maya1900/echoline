@@ -11,6 +11,7 @@ import { getAsrSettingsForUser } from "@/lib/user-settings";
 
 const allowedModes = new Set(["repeat", "call_response"]);
 const maxRecordingBytes = 15 * 1024 * 1024;
+const maxScoreRequestBytes = maxRecordingBytes + 1024 * 1024;
 
 type ScoreInput = {
   mode: string;
@@ -141,12 +142,19 @@ function getAsrFallbackFeedback({
 }
 
 export async function POST(request: Request) {
-  const input = await readScoreInput(request);
   const auth = await requireUserRequest();
 
   if (auth.error) {
     return auth.error;
   }
+
+  const contentLength = Number(request.headers.get("content-length") ?? 0);
+
+  if (Number.isFinite(contentLength) && contentLength > maxScoreRequestBytes) {
+    return NextResponse.json({ error: "Recording is too large" }, { status: 413 });
+  }
+
+  const input = await readScoreInput(request);
 
   if (!input.episodeId || !input.subtitleLineId || !input.targetText.trim()) {
     return NextResponse.json({ error: "Missing scoring input" }, { status: 400 });
