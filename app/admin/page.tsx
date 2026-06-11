@@ -4,6 +4,8 @@ import { getSiteSettings, listAdminUsers } from "@/lib/admin-data";
 import { requireAdmin } from "@/lib/auth/require-user";
 import { listAdminImportJobs, listSeries } from "@/lib/data";
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminPage() {
   await requireAdmin("/admin");
 

@@ -2,6 +2,8 @@ import { AppShell, SectionHeader } from "@/components/app-shell";
 import { SeriesBrowser } from "@/components/series-browser";
 import { listSeries } from "@/lib/data";
 
+export const dynamic = "force-dynamic";
+
 export default async function SeriesPage() {
   const series = await listSeries();
 

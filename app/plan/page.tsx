@@ -3,6 +3,8 @@ import { PlanWorkbench } from "@/components/workbenches/plan-workbench";
 import { requireCurrentUser } from "@/lib/auth/require-user";
 import { getStudyPlan } from "@/lib/data";
 
+export const dynamic = "force-dynamic";
+
 export default async function PlanPage() {
   await requireCurrentUser("/plan");
 

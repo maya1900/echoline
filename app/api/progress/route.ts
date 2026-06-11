@@ -38,7 +38,8 @@ function readOptionalScore(value: unknown) {
     return null;
   }
 
-  return readInteger(value, 0, 0, 100);
+  const parsed = readInteger(value, 0, 0, 100);
+  return parsed === null ? "invalid" : parsed;
 }
 
 export async function GET() {
@@ -72,7 +73,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing progress input" }, { status: 400 });
   }
 
-  if (!episodeId || !subtitleLineId || seriesId === "" || playbackPositionMs === null || repeatCount === null || bestScore === null) {
+  if (!episodeId || !subtitleLineId || seriesId === "" || playbackPositionMs === null || repeatCount === null || bestScore === "invalid") {
     return NextResponse.json({ error: "Invalid progress input" }, { status: 400 });
   }
 

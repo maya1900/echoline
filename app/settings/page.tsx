@@ -3,6 +3,8 @@ import { SettingsWorkbench } from "@/components/workbenches/settings-workbench";
 import { requireCurrentUser } from "@/lib/auth/require-user";
 import { getCurrentUserSettings } from "@/lib/user-settings";
 
+export const dynamic = "force-dynamic";
+
 export default async function SettingsPage() {
   await requireCurrentUser("/settings");
   const settings = await getCurrentUserSettings();

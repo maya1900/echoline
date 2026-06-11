@@ -3,6 +3,8 @@ import { VocabWorkbench } from "@/components/workbenches/vocab-workbench";
 import { requireCurrentUser } from "@/lib/auth/require-user";
 import { listVocabItems } from "@/lib/data";
 
+export const dynamic = "force-dynamic";
+
 export default async function VocabPage() {
   await requireCurrentUser("/vocab");
 

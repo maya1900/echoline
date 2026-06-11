@@ -4,6 +4,8 @@ import { AppShell, Metric, SectionHeader } from "@/components/app-shell";
 import { countDueVocabItems, getLastStudiedEpisodeId, getProgressData, getStudyPlan, getSubtitlesForEpisode, listSeries } from "@/lib/data";
 import { formatTime } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+
 function clampPercent(value: number) {
   if (!Number.isFinite(value)) {
     return 0;

@@ -4,6 +4,8 @@ import { LearningStudio } from "@/components/learning-studio";
 import { requireCurrentUser } from "@/lib/auth/require-user";
 import { getEpisode, getResumeSubtitleLineId, getSeriesForEpisode, getSubtitlesForEpisode } from "@/lib/data";
 
+export const dynamic = "force-dynamic";
+
 export default async function LearnPage({
   params
 }: {
