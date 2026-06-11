@@ -54,12 +54,12 @@ export async function AppShell({
             ))}
           </nav>
           {user ? (
-            <form action="/auth/logout" method="post" className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <span className="hidden max-w-48 truncate text-sm text-[color:var(--muted)] sm:block">{user.email}</span>
-              <button className="grid h-10 w-10 place-items-center rounded-md border border-[color:var(--ink)] transition hover:bg-[color:var(--ink)] hover:text-white" aria-label="退出登录">
+              <Link href="/auth/logout" className="grid h-10 w-10 place-items-center rounded-md border border-[color:var(--ink)] transition hover:bg-[color:var(--ink)] hover:text-white" aria-label="退出登录">
                 <LogOut className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </form>
+              </Link>
+            </div>
           ) : (
             <Link
               href="/login"
