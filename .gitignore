@@ -14,3 +14,4 @@ pnpm-debug.log*
 mock
 media
 tsconfig.tsbuildinfo
+.idea
