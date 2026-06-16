@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { BookOpen, ChevronLeft, ChevronRight, Eye, EyeOff, ListVideo, Maximize2, Mic, Minimize2, Pause, Play, Repeat, RotateCcw, Volume2 } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, Eye, EyeOff, Gauge, ListVideo, Maximize2, Mic, Minimize2, Pause, Play, Repeat, RotateCcw, Volume2 } from "lucide-react";
 import { SpeakWordButton } from "@/components/speak-word-button";
 import { convertAudioBlobToWavFile } from "@/lib/audio/wav";
 import type { DictionaryEntry, Episode, LearningMode, RepeatAttempt, Series, SubtitleLine } from "@/lib/types";
@@ -93,10 +93,11 @@ export function LearningStudio({
   const [showEnglish, setShowEnglish] = useState(true);
   const [showChinese, setShowChinese] = useState(true);
   const [speed, setSpeed] = useState(0.9);
+  const [volume, setVolume] = useState(1.0);
   const [loopCount, setLoopCount] = useState(3);
   const [maskBurnedSubtitles, setMaskBurnedSubtitles] = useState(true);
   const [maskHeight, setMaskHeight] = useState(11);
-  const [maskBottom, setMaskBottom] = useState(15);
+  const [maskBottom, setMaskBottom] = useState(7);
   const [isPlaying, setIsPlaying] = useState(false);
   const [mediaUrl, setMediaUrl] = useState(episode.mediaUrl);
   const [mediaError, setMediaError] = useState("");
@@ -161,6 +162,12 @@ export function LearningStudio({
       mediaRef.current.playbackRate = speed;
     }
   }, [speed]);
+
+  useEffect(() => {
+    if (mediaRef.current) {
+      mediaRef.current.volume = volume;
+    }
+  }, [volume]);
 
   useEffect(() => {
     autoRecordLineRef.current = null;
@@ -1004,10 +1011,17 @@ export function LearningStudio({
               <ControlToggle active={maskBurnedSubtitles} onClick={() => setMaskBurnedSubtitles((value) => !value)} icon={maskBurnedSubtitles ? EyeOff : Eye} label="遮挡硬字幕" />
               <label className="rounded-md border border-[color:var(--line)] p-3 text-sm">
                 <span className="mb-2 flex items-center gap-2 font-semibold">
-                  <Volume2 className="h-4 w-4" aria-hidden="true" />
+                  <Gauge className="h-4 w-4" aria-hidden="true" />
                   速度 {speed.toFixed(1)}x
                 </span>
                 <input type="range" min="0.5" max="1.25" step="0.05" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} className="w-full accent-[color:var(--green)]" />
+              </label>
+              <label className="rounded-md border border-[color:var(--line)] p-3 text-sm">
+                <span className="mb-2 flex items-center gap-2 font-semibold">
+                  <Volume2 className="h-4 w-4" aria-hidden="true" />
+                  音量 {Math.round(volume * 100)}%
+                </span>
+                <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => setVolume(Number(event.target.value))} className="w-full accent-[color:var(--green)]" />
               </label>
               <label className="rounded-md border border-[color:var(--line)] p-3 text-sm">
                 <span className="mb-2 flex items-center gap-2 font-semibold">

@@ -49,55 +49,118 @@ export async function POST(request: Request) {
     }
 
     const imported = await admin.db.transaction(async (tx) => {
-      const [createdSeries] = await tx
-        .insert(seriesTable)
-        .values({
-          title: draft.series.title,
-          originalTitle: draft.series.originalTitle,
-          description: draft.series.description,
-          coverUrl: draft.series.coverUrl,
-          difficulty: draft.series.difficulty,
-          genre: draft.series.genre,
-          status: draft.series.status,
-          createdBy: admin.user.id
-        })
-        .returning();
+      // 智能合并：检查 series 是否已存在
+      const [existingSeries] = await tx
+        .select()
+        .from(seriesTable)
+        .where(eq(seriesTable.title, draft.series.title))
+        .limit(1);
 
-      if (!createdSeries) {
-        throw new Error("Failed to create series");
+      let targetSeries;
+
+      if (existingSeries) {
+        // 使用已存在的 series，更新其元信息
+        const [updatedSeries] = await tx
+          .update(seriesTable)
+          .set({
+            originalTitle: draft.series.originalTitle,
+            description: draft.series.description,
+            coverUrl: draft.series.coverUrl,
+            difficulty: draft.series.difficulty,
+            genre: draft.series.genre,
+            status: draft.series.status,
+            updatedAt: new Date()
+          })
+          .where(eq(seriesTable.id, existingSeries.id))
+          .returning();
+
+        targetSeries = updatedSeries;
+      } else {
+        // 创建新 series
+        const [createdSeries] = await tx
+          .insert(seriesTable)
+          .values({
+            title: draft.series.title,
+            originalTitle: draft.series.originalTitle,
+            description: draft.series.description,
+            coverUrl: draft.series.coverUrl,
+            difficulty: draft.series.difficulty,
+            genre: draft.series.genre,
+            status: draft.series.status,
+            createdBy: admin.user.id
+          })
+          .returning();
+
+        targetSeries = createdSeries;
+      }
+
+      if (!targetSeries) {
+        throw new Error("Failed to create or update series");
       }
 
       const importedEpisodes: Episode[] = [];
       const importedJobs: AdminImportJob[] = [];
 
       for (const episodeDraft of draft.episodes) {
-        const [createdEpisode] = await tx
-          .insert(episodes)
-          .values({
-            seriesId: createdSeries.id,
-            seasonNumber: episodeDraft.seasonNumber,
-            episodeNumber: episodeDraft.episodeNumber,
-            title: episodeDraft.title,
-            description: episodeDraft.description,
-            mediaUrl: episodeDraft.mediaUrl,
-            durationSeconds: episodeDraft.durationSeconds,
-            status: draft.series.status
-          })
-          .returning();
+        // 智能合并：检查 episode 是否已存在
+        const [existingEpisode] = await tx
+          .select()
+          .from(episodes)
+          .where(
+            sql`${episodes.seriesId} = ${targetSeries.id} AND ${episodes.seasonNumber} = ${episodeDraft.seasonNumber} AND ${episodes.episodeNumber} = ${episodeDraft.episodeNumber}`
+          )
+          .limit(1);
 
-        if (!createdEpisode) {
-          throw new Error(`Failed to create episode ${episodeDraft.title}`);
+        let targetEpisode;
+
+        if (existingEpisode) {
+          // 更新已存在的 episode
+          const [updatedEpisode] = await tx
+            .update(episodes)
+            .set({
+              title: episodeDraft.title,
+              description: episodeDraft.description,
+              mediaUrl: episodeDraft.mediaUrl,
+              durationSeconds: episodeDraft.durationSeconds,
+              status: draft.series.status,
+              updatedAt: new Date()
+            })
+            .where(eq(episodes.id, existingEpisode.id))
+            .returning();
+
+          targetEpisode = updatedEpisode;
+        } else {
+          // 创建新 episode
+          const [createdEpisode] = await tx
+            .insert(episodes)
+            .values({
+              seriesId: targetSeries.id,
+              seasonNumber: episodeDraft.seasonNumber,
+              episodeNumber: episodeDraft.episodeNumber,
+              title: episodeDraft.title,
+              description: episodeDraft.description,
+              mediaUrl: episodeDraft.mediaUrl,
+              durationSeconds: episodeDraft.durationSeconds,
+              status: draft.series.status
+            })
+            .returning();
+
+          targetEpisode = createdEpisode;
+        }
+
+        if (!targetEpisode) {
+          throw new Error(`Failed to create or update episode ${episodeDraft.title}`);
         }
 
         importedEpisodes.push({
-          id: createdEpisode.id,
-          seriesId: createdEpisode.seriesId,
-          seasonNumber: createdEpisode.seasonNumber,
-          episodeNumber: createdEpisode.episodeNumber,
-          title: createdEpisode.title,
-          description: createdEpisode.description ?? "",
-          durationSeconds: createdEpisode.durationSeconds ?? episodeDraft.durationSeconds,
-          mediaUrl: createdEpisode.mediaUrl ?? episodeDraft.mediaUrl,
+          id: targetEpisode.id,
+          seriesId: targetEpisode.seriesId,
+          seasonNumber: targetEpisode.seasonNumber,
+          episodeNumber: targetEpisode.episodeNumber,
+          title: targetEpisode.title,
+          description: targetEpisode.description ?? "",
+          durationSeconds: targetEpisode.durationSeconds ?? episodeDraft.durationSeconds,
+          mediaUrl: targetEpisode.mediaUrl ?? episodeDraft.mediaUrl,
           progress: 0
         });
 
@@ -108,7 +171,7 @@ export async function POST(request: Request) {
         const job = await importEpisodeSubtitles({
           tx,
           adminId: admin.user.id,
-          episodeId: createdEpisode.id,
+          episodeId: targetEpisode.id,
           sourceFilename: episodeDraft.subtitleFilename,
           subtitlePath: episodeDraft.subtitlePath
         });
@@ -118,13 +181,13 @@ export async function POST(request: Request) {
 
       return {
         series: {
-          id: createdSeries.id,
-          title: createdSeries.title,
-          originalTitle: createdSeries.originalTitle ?? "",
-          description: createdSeries.description ?? "",
-          coverUrl: createdSeries.coverUrl ?? "",
-          difficulty: createdSeries.difficulty,
-          genre: createdSeries.genre ?? "",
+          id: targetSeries.id,
+          title: targetSeries.title,
+          originalTitle: targetSeries.originalTitle ?? "",
+          description: targetSeries.description ?? "",
+          coverUrl: targetSeries.coverUrl ?? "",
+          difficulty: targetSeries.difficulty,
+          genre: targetSeries.genre ?? "",
           progress: 0,
           episodes: importedEpisodes
         },
