@@ -2,14 +2,14 @@
 
 ## 项目定位
 
-`your-english-coach` 是一个面向中文母语用户的个人自用“看剧学英语”工作台。V1 优先交付完整学习闭环，不包含支付、会员、社区、公开排行榜或复杂运营后台。
+`追句 EchoLine` 是一个面向中文母语用户的个人自用“逐句看剧学英语”工作台。V1 优先交付完整学习闭环，不包含支付、会员、社区、公开排行榜或复杂运营后台。
 
 ## 信息源优先级
 
 - 产品与验收要求：`docs/development.md`
 - 开发计划：`docs/development-plan.md`
 - UI 方向与组件规则：`docs/ui.md`
-- 数据模型与 RLS 基线：`supabase/schema.sql`
+- 数据模型与迁移基线：`lib/db/schema.ts`、`drizzle/`
 
 ## 工作规则
 
@@ -24,7 +24,7 @@
 ## 开发习惯
 
 - 优先小而聚焦的改动，不做无关重构。
-- Supabase 集成完成前，使用类型化 mock 数据和本地 route handlers。
+- 后端未接入或数据库未配置时，使用类型化 mock 数据和本地 route handlers。
 - API route 契约尽量贴近 `docs/development.md`。
 - 只在行为不够直观的位置添加少量注释。
 - 完成 UI 改动前，尽量运行 lint/build，并在可行时用浏览器做桌面和移动端冒烟检查。

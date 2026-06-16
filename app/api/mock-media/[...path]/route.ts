@@ -1,10 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { requireUserRequest } from "@/lib/auth/api";
 
 const mockRoot = path.resolve(process.cwd(), "mock");
 
+export const runtime = "nodejs";
+
 export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
+  const auth = await requireUserRequest();
+
+  if (auth.error) {
+    return auth.error;
+  }
+
   const { path: pathParts } = await params;
   const target = path.resolve(mockRoot, ...pathParts);
 

@@ -1,173 +1,175 @@
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireUserRequest } from "@/lib/auth/api";
+import { vocabItems } from "@/lib/db/schema";
+import { calculateVocabReviewUpdate, isVocabReviewQuality } from "@/lib/vocab/review";
 
-type VocabRow = {
-  id: string;
-  word: string;
-  phonetic: string | null;
-  translation: string | null;
-  context_sentence: string | null;
-  status: "new" | "learning" | "mastered";
-  review_count: number;
-  ease: number;
-  interval_days: number;
-  due_at: string | null;
-  last_reviewed_at: string | null;
-};
+type VocabRow = typeof vocabItems.$inferSelect;
 
-type ReviewQuality = "again" | "good" | "easy";
+const allowedStatuses = new Set(["new", "learning", "mastered"]);
+
+function trimText(value: string, maxLength: number) {
+  return value.trim().slice(0, maxLength);
+}
 
 function serializeVocab(row: VocabRow) {
-  const dueDate = row.due_at ? new Date(row.due_at) : null;
+  const dueDate = row.dueAt ? new Date(row.dueAt) : null;
 
   return {
     id: row.id,
     word: row.word,
     phonetic: row.phonetic ?? "",
     translation: row.translation ?? "",
-    contextSentence: row.context_sentence ?? "",
-    status: row.status,
-    reviewCount: row.review_count,
+    contextSentence: row.contextSentence ?? "",
+    status: row.status as "new" | "learning" | "mastered",
+    reviewCount: row.reviewCount,
     dueAt: dueDate ? new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric" }).format(dueDate) : "今天",
-    dueAtIso: row.due_at,
+    dueAtIso: row.dueAt ? row.dueAt.toISOString() : null,
     isDue: !dueDate || dueDate.getTime() <= Date.now(),
     ease: Number(row.ease ?? 2.5),
-    intervalDays: row.interval_days ?? 0,
-    lastReviewedAt: row.last_reviewed_at
-  };
-}
-
-function isReviewQuality(value: unknown): value is ReviewQuality {
-  return value === "again" || value === "good" || value === "easy";
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function calculateReviewUpdate(row: VocabRow, quality: ReviewQuality) {
-  const now = new Date();
-  const currentEase = Number(row.ease ?? 2.5);
-  const currentInterval = row.interval_days ?? 0;
-  const reviewCount = row.review_count + 1;
-
-  if (quality === "again") {
-    return {
-      status: "learning",
-      review_count: reviewCount,
-      ease: Math.max(1.3, Number((currentEase - 0.2).toFixed(2))),
-      interval_days: 1,
-      due_at: addDays(now, 1).toISOString(),
-      last_reviewed_at: now.toISOString()
-    };
-  }
-
-  const easeDelta = quality === "easy" ? 0.15 : 0;
-  const nextEase = Math.min(3.2, Number((currentEase + easeDelta).toFixed(2)));
-  const nextInterval =
-    quality === "easy"
-      ? Math.max(4, Math.round(Math.max(1, currentInterval) * nextEase))
-      : currentInterval <= 0
-        ? 2
-        : Math.max(2, Math.round(currentInterval * nextEase));
-
-  return {
-    status: nextInterval >= 7 || reviewCount >= 4 ? "mastered" : "learning",
-    review_count: reviewCount,
-    ease: nextEase,
-    interval_days: nextInterval,
-    due_at: addDays(now, nextInterval).toISOString(),
-    last_reviewed_at: now.toISOString()
+    intervalDays: row.intervalDays ?? 0,
+    lastReviewedAt: row.lastReviewedAt ? row.lastReviewedAt.toISOString() : null
   };
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
-  const supabase = await createSupabaseServerClient();
+  const auth = await requireUserRequest();
 
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured" }, { status: 503 });
+  if (auth.error) {
+    return auth.error;
   }
 
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const body = await request.json().catch(() => null);
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
   }
 
-  const reviewQuality = isReviewQuality(body.reviewQuality) ? body.reviewQuality : null;
-  let updatePayload: Record<string, unknown> = {
-    translation: body.translation,
-    note: body.note,
-    status: body.status,
-    review_count: body.reviewCount,
-    due_at: body.dueAt
-  };
+  const input = body as Record<string, unknown>;
+  const hasReviewQuality = Object.hasOwn(input, "reviewQuality");
+  const reviewQuality = isVocabReviewQuality(input.reviewQuality) ? input.reviewQuality : null;
+  let updatePayload: Partial<typeof vocabItems.$inferInsert> = {};
+
+  if (hasReviewQuality && !reviewQuality) {
+    return NextResponse.json({ error: "Invalid reviewQuality" }, { status: 400 });
+  }
 
   if (reviewQuality) {
-    const { data: current, error: readError } = await supabase
-      .from("vocab_items")
-      .select("id,word,phonetic,translation,context_sentence,status,review_count,ease,interval_days,due_at,last_reviewed_at")
-      .eq("id", id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (readError) {
-      return NextResponse.json({ error: readError.message }, { status: 500 });
-    }
+    const [current] = await auth.db
+      .select()
+      .from(vocabItems)
+      .where(and(eq(vocabItems.id, id), eq(vocabItems.userId, auth.user.id)))
+      .limit(1);
 
     if (!current) {
       return NextResponse.json({ error: "Vocab item not found" }, { status: 404 });
     }
 
-    updatePayload = calculateReviewUpdate(current as VocabRow, reviewQuality);
+    const update = calculateVocabReviewUpdate(
+      {
+        review_count: current.reviewCount,
+        ease: current.ease,
+        interval_days: current.intervalDays
+      },
+      reviewQuality
+    );
+
+    updatePayload = {
+      status: update.status,
+      reviewCount: update.review_count,
+      ease: String(update.ease),
+      intervalDays: update.interval_days,
+      dueAt: new Date(update.due_at),
+      lastReviewedAt: new Date(update.last_reviewed_at),
+      updatedAt: new Date()
+    };
+  } else {
+    const manualPayload = readManualUpdatePayload(input);
+
+    if ("error" in manualPayload) {
+      return NextResponse.json({ error: manualPayload.error }, { status: 400 });
+    }
+
+    updatePayload = manualPayload.data;
   }
 
-  const { data, error } = await supabase
-    .from("vocab_items")
-    .update(updatePayload)
-    .eq("id", id)
-    .eq("user_id", user.id)
-    .select("id,word,phonetic,translation,context_sentence,status,review_count,ease,interval_days,due_at,last_reviewed_at")
-    .maybeSingle();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (Object.keys(updatePayload).length === 0) {
+    return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
   }
+
+  const [data] = await auth.db
+    .update(vocabItems)
+    .set(updatePayload)
+    .where(and(eq(vocabItems.id, id), eq(vocabItems.userId, auth.user.id)))
+    .returning();
 
   if (!data) {
     return NextResponse.json({ error: "Vocab item not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ data: serializeVocab(data as VocabRow) });
+  return NextResponse.json({ data: serializeVocab(data) });
+}
+
+function readManualUpdatePayload(input: Record<string, unknown>) {
+  const payload: Partial<typeof vocabItems.$inferInsert> = { updatedAt: new Date() };
+
+  if (Object.hasOwn(input, "translation")) {
+    if (typeof input.translation !== "string") {
+      return { error: "Invalid translation" };
+    }
+
+    payload.translation = trimText(input.translation, 500);
+  }
+
+  if (Object.hasOwn(input, "note")) {
+    if (typeof input.note !== "string" && input.note !== null) {
+      return { error: "Invalid note" };
+    }
+
+    payload.note = typeof input.note === "string" ? trimText(input.note, 1000) : null;
+  }
+
+  if (Object.hasOwn(input, "status")) {
+    if (typeof input.status !== "string" || !allowedStatuses.has(input.status)) {
+      return { error: "Invalid status" };
+    }
+
+    payload.status = input.status;
+  }
+
+  if (Object.hasOwn(input, "reviewCount")) {
+    const reviewCount = Number(input.reviewCount);
+
+    if (!Number.isInteger(reviewCount) || reviewCount < 0) {
+      return { error: "Invalid reviewCount" };
+    }
+
+    payload.reviewCount = reviewCount;
+  }
+
+  if (Object.hasOwn(input, "dueAt")) {
+    if (input.dueAt === null || input.dueAt === "") {
+      payload.dueAt = null;
+    } else if (typeof input.dueAt === "string" && !Number.isNaN(new Date(input.dueAt).getTime())) {
+      payload.dueAt = new Date(input.dueAt);
+    } else {
+      return { error: "Invalid dueAt" };
+    }
+  }
+
+  return { data: payload };
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createSupabaseServerClient();
+  const auth = await requireUserRequest();
 
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured" }, { status: 503 });
+  if (auth.error) {
+    return auth.error;
   }
 
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { error } = await supabase.from("vocab_items").delete().eq("id", id).eq("user_id", user.id);
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  await auth.db.delete(vocabItems).where(and(eq(vocabItems.id, id), eq(vocabItems.userId, auth.user.id)));
 
   return NextResponse.json({ data: { id, deleted: true } });
 }

@@ -20,8 +20,9 @@ async function getDictionaryAiConfig() {
   const provider = settings.provider;
   const apiKey = settings.apiKey;
   const model = settings.model || (provider === "siliconflow" ? "THUDM/GLM-4-9B-0414" : "glm-4-flash");
+  const configuredBaseUrl = process.env.DICTIONARY_AI_BASE_URL?.trim();
   const baseUrl =
-    process.env.DICTIONARY_AI_BASE_URL ??
+    configuredBaseUrl ||
     (provider === "siliconflow" ? "https://api.siliconflow.cn/v1/chat/completions" : "https://open.bigmodel.cn/api/paas/v4/chat/completions");
 
   return { apiKey, baseUrl, enabled, model };

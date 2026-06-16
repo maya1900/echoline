@@ -3,30 +3,30 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound, Loader2, Mail } from "lucide-react";
-import type { Provider } from "@supabase/supabase-js";
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { signIn } from "next-auth/react";
 import { cn } from "@/lib/utils";
 
 type Mode = "login" | "signup";
-const linuxDoProvider = "custom:linuxdo" satisfies Provider;
 
-export function LoginForm({ nextPath = "/", allowSignup = true }: { nextPath?: string; allowSignup?: boolean }) {
+export function LoginForm({
+  nextPath = "/",
+  allowSignup = true,
+  linuxDoDisabledReason
+}: {
+  nextPath?: string;
+  allowSignup?: boolean;
+  linuxDoDisabledReason?: string;
+}) {
   const router = useRouter();
-  const supabase = createSupabaseBrowserClient();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState(supabase ? "" : "当前未配置 Supabase 环境变量，登录不可用。");
+  const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const visibleModes: Mode[] = allowSignup ? ["login", "signup"] : ["login"];
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (!supabase) {
-      setMessage("填好 .env.local 后即可启用 Supabase Auth。");
-      return;
-    }
 
     setIsSubmitting(true);
     setMessage("");
@@ -37,60 +37,48 @@ export function LoginForm({ nextPath = "/", allowSignup = true }: { nextPath?: s
       return;
     }
 
-    const authRequest =
-      mode === "login"
-        ? supabase.auth.signInWithPassword({ email, password })
-        : supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`
-            }
-          });
+    if (mode === "signup") {
+      const registerResponse = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      const registerPayload = await registerResponse.json().catch(() => ({}));
 
-    const { data, error } = await authRequest;
+      if (!registerResponse.ok) {
+        setIsSubmitting(false);
+        setMessage(typeof registerPayload.error === "string" ? registerPayload.error : "注册失败，请稍后再试。");
+        return;
+      }
+    }
+
+    const result = await signIn("credentials", {
+      email,
+      password,
+      redirect: false,
+      callbackUrl: nextPath
+    });
+
     setIsSubmitting(false);
 
-    if (error) {
-      setMessage(error.message);
+    if (result?.error) {
+      setMessage("邮箱或密码不正确。");
       return;
     }
 
-    if (mode === "signup" && !data.session) {
-      setMessage("注册邮件已发送，请完成邮箱确认后再回来登录。");
-      return;
-    }
-
-    if (data.user) {
-      await fetch("/api/auth/bootstrap", { method: "POST" });
-    }
-
-    router.push(nextPath);
+    router.push(result?.url ?? nextPath);
     router.refresh();
   }
 
   async function handleLinuxDoLogin() {
-    if (!supabase) {
-      setMessage("填好 .env.local 后即可启用 Supabase Auth。");
+    if (linuxDoDisabledReason) {
+      setMessage(linuxDoDisabledReason);
       return;
     }
 
     setIsSubmitting(true);
     setMessage("");
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: linuxDoProvider,
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
-        scopes: "openid profile email"
-      }
-    });
-
-    setIsSubmitting(false);
-
-    if (error) {
-      setMessage(error.message);
-    }
+    await signIn("linuxdo", { callbackUrl: nextPath });
   }
 
   return (
@@ -122,7 +110,7 @@ export function LoginForm({ nextPath = "/", allowSignup = true }: { nextPath?: s
       <button
         type="button"
         onClick={() => void handleLinuxDoLogin()}
-        disabled={isSubmitting || !supabase}
+        disabled={isSubmitting || Boolean(linuxDoDisabledReason)}
         className="flex h-11 items-center justify-center gap-2 rounded-md border border-[color:var(--line)] bg-white/55 text-sm font-semibold transition hover:border-[color:var(--ink)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
       >
         <KeyRound className="h-4 w-4" aria-hidden="true" />

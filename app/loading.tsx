@@ -23,8 +23,8 @@ export default function Loading() {
               <Clapperboard className="h-5 w-5" aria-hidden="true" />
             </span>
             <span className="min-w-0">
-              <span className="block truncate text-sm font-bold">Your English Coach</span>
-              <span className="block truncate text-xs text-[color:var(--muted)]">看剧学英语工作台</span>
+              <span className="block truncate text-sm font-bold">追句 EchoLine</span>
+              <span className="block truncate text-xs text-[color:var(--muted)]">逐句看剧学英语工作台</span>
             </span>
           </div>
           <nav className="hidden items-center gap-1 lg:flex">

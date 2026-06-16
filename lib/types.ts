@@ -84,7 +84,7 @@ export type DictionaryEntry = {
   partOfSpeech?: string;
   inContext?: string;
   note?: string;
-  source?: "supabase" | "fallback" | "ai" | "missing";
+  source?: "database" | "fallback" | "ai" | "missing";
 };
 
 export type RepeatAttempt = {
@@ -94,6 +94,9 @@ export type RepeatAttempt = {
   missedWords: string[];
   overall: number;
   feedback: string;
+  scorable?: boolean;
+  emptyTranscript?: boolean;
+  reason?: string;
 };
 
 export type AdminImportJob = {

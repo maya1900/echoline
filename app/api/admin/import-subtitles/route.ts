@@ -1,5 +1,7 @@
+import { eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireAdminRequest } from "@/lib/auth/api";
+import { adminImportJobs, subtitleLines } from "@/lib/db/schema";
 import { parseSubtitleText } from "@/lib/subtitles/parser";
 
 type SubtitleImportInput = {
@@ -7,6 +9,10 @@ type SubtitleImportInput = {
   sourceFilename: string;
   subtitleText: string;
 };
+
+function sqlExcluded(column: string) {
+  return sql.raw(`excluded.${column}`);
+}
 
 export async function POST(request: Request) {
   const admin = await requireAdminRequest();
@@ -26,44 +32,70 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No subtitle cues parsed" }, { status: 400 });
   }
 
-  const { data: job, error: jobError } = await admin.supabase
-    .from("admin_import_jobs")
-    .insert({
-      admin_id: admin.user.id,
-      episode_id: input.episodeId,
-      source_filename: input.sourceFilename,
+  const [job] = await admin.db
+    .insert(adminImportJobs)
+    .values({
+      adminId: admin.user.id,
+      episodeId: input.episodeId,
+      sourceFilename: input.sourceFilename,
       status: "processing",
-      parsed_lines: 0
+      parsedLines: 0
     })
-    .select("id")
-    .single();
+    .returning({ id: adminImportJobs.id });
 
-  if (jobError || !job) {
-    return NextResponse.json({ error: jobError?.message ?? "Failed to create import job" }, { status: 500 });
+  if (!job) {
+    return NextResponse.json({ error: "Failed to create import job" }, { status: 500 });
   }
 
   const rows = lines.map((line) => ({
-    episode_id: input.episodeId,
-    line_index: line.lineIndex,
-    start_ms: line.startMs,
-    end_ms: line.endMs,
-    english_text: line.englishText,
-    chinese_text: line.chineseText,
+    episodeId: input.episodeId!,
+    lineIndex: line.lineIndex,
+    startMs: line.startMs,
+    endMs: line.endMs,
+    englishText: line.englishText,
+    chineseText: line.chineseText,
     keywords: line.keywords
   }));
-  const { error: lineError } = await admin.supabase.from("subtitle_lines").upsert(rows, { onConflict: "episode_id,line_index" });
+  let lineError: Error | null = null;
+
+  try {
+    await admin.db
+      .insert(subtitleLines)
+      .values(rows)
+      .onConflictDoUpdate({
+        target: [subtitleLines.episodeId, subtitleLines.lineIndex],
+        set: {
+          startMs: sqlExcluded("start_ms"),
+          endMs: sqlExcluded("end_ms"),
+          englishText: sqlExcluded("english_text"),
+          chineseText: sqlExcluded("chinese_text"),
+          keywords: sqlExcluded("keywords"),
+          updatedAt: new Date()
+        }
+      });
+  } catch (error) {
+    lineError = error instanceof Error ? error : new Error("Failed to import subtitle lines");
+  }
+
   const status = lineError ? "failed" : "completed";
 
-  const { data: updatedJob } = await admin.supabase
-    .from("admin_import_jobs")
-    .update({
+  const [updatedJob] = await admin.db
+    .update(adminImportJobs)
+    .set({
       status,
-      parsed_lines: lineError ? 0 : lines.length,
-      error_message: lineError?.message
+      parsedLines: lineError ? 0 : lines.length,
+      errorMessage: lineError?.message,
+      updatedAt: new Date()
     })
-    .eq("id", job.id)
-    .select("id,source_filename,status,parsed_lines,error_message,created_at")
-    .single();
+    .where(eq(adminImportJobs.id, job.id))
+    .returning({
+      id: adminImportJobs.id,
+      source_filename: adminImportJobs.sourceFilename,
+      status: adminImportJobs.status,
+      parsed_lines: adminImportJobs.parsedLines,
+      error_message: adminImportJobs.errorMessage,
+      created_at: adminImportJobs.createdAt
+    });
 
   if (lineError) {
     return NextResponse.json({ error: lineError.message, data: { job: updatedJob } }, { status: 500 });

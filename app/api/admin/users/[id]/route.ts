@@ -1,6 +1,7 @@
+import { count, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { requireAdminRequest } from "@/lib/auth/api";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { profiles } from "@/lib/db/schema";
 
 type RoleUpdate = {
   role?: "user" | "admin";
@@ -16,52 +17,44 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   const body = (await request.json().catch(() => ({}))) as RoleUpdate;
-  const supabaseAdmin = createSupabaseAdminClient();
-
-  if (!supabaseAdmin) {
-    return NextResponse.json({ error: "Supabase service role is not configured" }, { status: 503 });
-  }
 
   if (body.role && !["user", "admin"].includes(body.role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
 
   if (body.role === "user") {
-    const { count, error: countError } = await supabaseAdmin.from("profiles").select("id", { count: "exact", head: true }).eq("role", "admin");
+    const [{ value: adminCount }] = await admin.db.select({ value: count() }).from(profiles).where(eq(profiles.role, "admin"));
 
-    if (countError) {
-      return NextResponse.json({ error: countError.message }, { status: 500 });
-    }
-
-    if ((count ?? 0) <= 1) {
+    if (adminCount <= 1) {
       return NextResponse.json({ error: "At least one admin is required" }, { status: 400 });
     }
   }
 
-  const updatePayload: Record<string, string> = {};
+  const updatePayload: Partial<typeof profiles.$inferInsert> = { updatedAt: new Date() };
 
   if (body.role) {
     updatePayload.role = body.role;
   }
 
   if (typeof body.displayName === "string") {
-    updatePayload.display_name = body.displayName.trim();
+    updatePayload.displayName = body.displayName.trim();
   }
 
-  if (Object.keys(updatePayload).length === 0) {
+  if (Object.keys(updatePayload).length === 1) {
     return NextResponse.json({ error: "No changes provided" }, { status: 400 });
   }
 
-  const { data, error } = await supabaseAdmin
-    .from("profiles")
-    .update(updatePayload)
-    .eq("id", id)
-    .select("id,email,display_name,role,created_at")
-    .maybeSingle();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  const [data] = await admin.db
+    .update(profiles)
+    .set(updatePayload)
+    .where(eq(profiles.id, id))
+    .returning({
+      id: profiles.id,
+      email: profiles.email,
+      display_name: profiles.displayName,
+      role: profiles.role,
+      created_at: profiles.createdAt
+    });
 
   if (!data) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });

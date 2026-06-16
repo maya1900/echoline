@@ -1,23 +1,49 @@
 import Link from "next/link";
 import { ArrowRight, BookOpen, Clock3, Headphones, ListVideo, Play } from "lucide-react";
 import { AppShell, Metric, SectionHeader } from "@/components/app-shell";
-import { countDueVocabItems, getProgressData, getStudyPlan, getSubtitlesForEpisode, listSeries } from "@/lib/data";
+import { countDueVocabItems, getLastStudiedEpisodeId, getProgressData, getStudyPlan, getSubtitlesForEpisode, listSeries } from "@/lib/data";
 import { formatTime } from "@/lib/utils";
+
+export const dynamic = "force-dynamic";
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(Math.max(value, 0), 100);
+}
+
+function ratioPercent(done: number, total: number) {
+  if (!Number.isFinite(done) || !Number.isFinite(total) || total <= 0) {
+    return 0;
+  }
+
+  return clampPercent((done / total) * 100);
+}
 
 export default async function DashboardPage() {
   const series = await listSeries();
   const studyPlan = await getStudyPlan();
   const { summary: progressSummary } = await getProgressData();
   const dueVocabCount = await countDueVocabItems();
-  const currentSeries = series[0];
+  const allEpisodes = series.flatMap((item) => item.episodes.map((episode) => ({ episode, parentSeries: item })));
+  const lastStudiedEpisodeId = await getLastStudiedEpisodeId(allEpisodes.map((item) => item.episode.id));
+  const currentEpisodeEntry =
+    allEpisodes.find((item) => item.episode.id === lastStudiedEpisodeId) ??
+    allEpisodes.find((item) => item.episode.progress > 0 && item.episode.progress < 100) ??
+    allEpisodes.find((item) => item.episode.progress < 100) ??
+    allEpisodes[0];
+  const currentSeries = currentEpisodeEntry?.parentSeries;
+  const currentEpisode = currentEpisodeEntry?.episode;
 
-  if (!currentSeries || currentSeries.episodes.length === 0) {
+  if (!currentSeries || !currentEpisode) {
     return (
       <AppShell active="/">
         <SectionHeader eyebrow="今日学习" title="暂无可学习内容" />
         <section className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-5">
           <h2 className="text-xl font-bold">还没有发布的学习片段</h2>
-          <p className="mt-2 text-sm leading-6 text-[color:var(--muted)]">请先在导入页添加剧集、片段和字幕，或检查 Supabase 数据是否可读。</p>
+          <p className="mt-2 text-sm leading-6 text-[color:var(--muted)]">请先在导入页添加剧集、片段和字幕，或检查数据库内容是否可读。</p>
           <div className="mt-4 flex flex-wrap gap-3">
             <Link href="/admin" className="ink-action flex h-10 items-center gap-2 rounded-md px-3 text-sm font-semibold">
               去导入
@@ -33,12 +59,12 @@ export default async function DashboardPage() {
     );
   }
 
-  const currentEpisode =
-    currentSeries.episodes.find((episode) => episode.progress > 0 && episode.progress < 100) ??
-    currentSeries.episodes.find((episode) => episode.progress < 100) ??
-    currentSeries.episodes[0];
-  const queuedEpisodes = currentSeries.episodes.filter((episode) => episode.id !== currentEpisode.id && episode.progress < 100).slice(0, 2);
+  const queuedEpisodes = allEpisodes
+    .map((item) => item.episode)
+    .filter((episode) => episode.id !== currentEpisode.id && episode.progress < 100)
+    .slice(0, 2);
   const lines = await getSubtitlesForEpisode(currentEpisode.id);
+  const currentEpisodeProgress = clampPercent(currentEpisode.progress);
 
   return (
     <AppShell active="/">
@@ -79,10 +105,10 @@ export default async function DashboardPage() {
               <div className="mt-8">
                 <div className="mb-2 flex items-center justify-between text-sm">
                   <span className="font-semibold">本集进度</span>
-                  <span>{currentEpisode.progress}%</span>
+                  <span>{currentEpisodeProgress}%</span>
                 </div>
-                <div className="h-3 rounded-full bg-black/10">
-                  <div className="h-3 rounded-full bg-[color:var(--amber)]" style={{ width: `${currentEpisode.progress}%` }} />
+                <div className="h-3 overflow-hidden rounded-full bg-black/10">
+                  <div className="h-3 rounded-full bg-[color:var(--amber)]" style={{ width: `${currentEpisodeProgress}%` }} />
                 </div>
                 <div className="mt-5 grid gap-3 sm:grid-cols-3">
                   <Link href={`/learn/${currentEpisode.id}`} className="ink-action flex h-12 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold">
@@ -113,17 +139,21 @@ export default async function DashboardPage() {
               ["分钟", studyPlan.completedMinutes, studyPlan.dailyMinutes],
               ["句子", studyPlan.completedLines, studyPlan.dailyLines],
               ["跟读", studyPlan.completedRepeats, studyPlan.dailyRepeats]
-            ].map(([label, done, total]) => (
-              <div key={label} className="mb-4 last:mb-0">
-                <div className="mb-2 flex items-center justify-between text-sm">
-                  <span>{label}</span>
-                  <span className="font-semibold">{done}/{total}</span>
+            ].map(([label, done, total]) => {
+              const percent = ratioPercent(Number(done), Number(total));
+
+              return (
+                <div key={label} className="mb-4 last:mb-0">
+                  <div className="mb-2 flex items-center justify-between text-sm">
+                    <span>{label}</span>
+                    <span className="font-semibold">{done}/{total}</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-black/10">
+                    <div className="h-2 rounded-full bg-[color:var(--green)]" style={{ width: `${percent}%` }} />
+                  </div>
                 </div>
-                <div className="h-2 rounded-full bg-black/10">
-                  <div className="h-2 rounded-full bg-[color:var(--green)]" style={{ width: `${(Number(done) / Number(total)) * 100}%` }} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-5">
@@ -171,12 +201,12 @@ export default async function DashboardPage() {
               </span>
             </div>
             <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
-              <span className="rounded-md border border-[color:var(--line)] px-3 py-2">进度 {currentEpisode.progress}%</span>
+              <span className="rounded-md border border-[color:var(--line)] px-3 py-2">进度 {currentEpisodeProgress}%</span>
               <span className="rounded-md border border-[color:var(--line)] px-3 py-2">S{currentEpisode.seasonNumber}E{currentEpisode.episodeNumber}</span>
               <span className="rounded-md border border-[color:var(--line)] px-3 py-2">{formatTime(currentEpisode.durationSeconds)}</span>
             </div>
-            <div className="mt-4 h-2 rounded-full bg-black/10">
-              <div className="h-2 rounded-full bg-[color:var(--amber)]" style={{ width: `${currentEpisode.progress}%` }} />
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-black/10">
+              <div className="h-2 rounded-full bg-[color:var(--amber)]" style={{ width: `${currentEpisodeProgress}%` }} />
             </div>
           </Link>
 
@@ -216,7 +246,7 @@ export default async function DashboardPage() {
                 </div>
                 <h3 className="truncate text-lg font-bold">{item.title}</h3>
                 <p className="mt-1 line-clamp-2 text-sm leading-6 text-[color:var(--muted)]">{item.description}</p>
-                <Link href="/series" className="mt-3 inline-flex h-9 items-center gap-2 rounded-md border border-[color:var(--line)] px-3 text-sm font-semibold hover:border-[color:var(--ink)]">
+                <Link href="/series" className="mt-3 inline-flex h-10 items-center gap-2 rounded-md border border-[color:var(--line)] px-3 text-sm font-semibold hover:border-[color:var(--ink)]">
                   查看片段
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Link>

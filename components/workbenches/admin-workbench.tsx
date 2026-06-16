@@ -3,21 +3,26 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BookOpenCheck,
+  Copy,
   Database,
+  Pencil,
   FileUp,
   Film,
+  FolderInput,
   KeyRound,
   ListChecks,
   Lock,
-  Plus,
   Save,
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
+  Trash2,
   UserCog,
-  Users
+  Users,
+  X
 } from "lucide-react";
 import type { AdminImportJob, AdminUser, Episode, Series, SiteSettings, SubtitleLine } from "@/lib/types";
+import { parseSubtitleText } from "@/lib/subtitles/parser";
 import { cn } from "@/lib/utils";
 
 type SeriesResponse = {
@@ -47,6 +52,10 @@ type EpisodeResponse = {
   durationSeconds?: number;
   duration_seconds?: number | null;
   progress?: number;
+};
+
+type MediaUploadResponse = {
+  mediaUrl?: string;
 };
 
 type ImportResponse = {
@@ -83,8 +92,49 @@ type SubtitleLineResponse = {
   keywords?: string[] | null;
 };
 
+type AutoImportEpisodeDraft = {
+  draftId: string;
+  seasonNumber: number;
+  episodeNumber: number;
+  title: string;
+  description: string;
+  mediaUrl: string;
+  mediaFilename: string;
+  mediaPath: string;
+  subtitleFilename: string | null;
+  subtitlePath: string | null;
+  subtitleLineCount: number;
+  durationSeconds: number;
+  issues: string[];
+};
+
+type AutoImportSeriesFieldSource = "default" | "filename" | "metadata";
+
+type AutoImportSeriesDraft = {
+  title: string;
+  originalTitle: string;
+  description: string;
+  coverUrl: string;
+  difficulty: string;
+  genre: string;
+  status: "draft" | "published";
+};
+
+type AutoImportDraft = {
+  directory: string;
+  series: AutoImportSeriesDraft;
+  seriesFieldSources?: Partial<Record<keyof AutoImportSeriesDraft, AutoImportSeriesFieldSource>>;
+  episodes: AutoImportEpisodeDraft[];
+  warnings: string[];
+};
+
+type AutoImportResult = {
+  series: Series;
+  jobs: AdminImportJob[];
+};
+
 type AdminModule = "imports" | "users" | "permissions" | "settings";
-type ImportPanel = "series" | "episode" | "subtitles" | "editor";
+type ImportPanel = "auto" | "editor";
 
 const statusText = {
   queued: "排队中",
@@ -114,39 +164,23 @@ export function AdminWorkbench({
   const [users, setUsers] = useState(initialUsers);
   const [settings, setSettings] = useState(initialSettings);
   const [activeModule, setActiveModule] = useState<AdminModule>("imports");
-  const [activePanel, setActivePanel] = useState<ImportPanel>("series");
+  const [activePanel, setActivePanel] = useState<ImportPanel>("auto");
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [savingUserId, setSavingUserId] = useState("");
   const [dictionaryApiKeyInput, setDictionaryApiKeyInput] = useState("");
+  const [autoImportDirectory, setAutoImportDirectory] = useState("");
+  const [autoImportDraft, setAutoImportDraft] = useState<AutoImportDraft | null>(null);
+  const [autoImportMode, setAutoImportMode] = useState<"idle" | "scanning" | "importing">("idle");
+  const [editingSeriesId, setEditingSeriesId] = useState("");
+  const [editingEpisodeId, setEditingEpisodeId] = useState("");
+  const [savingContentId, setSavingContentId] = useState("");
+  const [deletingContentId, setDeletingContentId] = useState("");
 
-  const [seriesForm, setSeriesForm] = useState({
-    title: "",
-    originalTitle: "",
-    description: "",
-    coverUrl: "",
-    difficulty: "B1",
-    genre: "生活 / 情景",
-    status: "published"
-  });
-  const [episodeForm, setEpisodeForm] = useState({
-    seriesId: initialSeries[0]?.id ?? "",
-    seasonNumber: 1,
-    episodeNumber: nextEpisodeNumber(initialSeries[0]),
-    title: "",
-    description: "",
-    mediaUrl: "",
-    durationMinutes: 22,
-    status: "published"
-  });
-  const [subtitleForm, setSubtitleForm] = useState({
-    episodeId: initialSeries[0]?.episodes[0]?.id ?? "",
-    sourceFilename: "episode.srt",
-    subtitleText: ""
-  });
   const [editorEpisodeId, setEditorEpisodeId] = useState(initialSeries[0]?.episodes[0]?.id ?? "");
   const [subtitleLines, setSubtitleLines] = useState<SubtitleLine[]>([]);
   const [selectedLineId, setSelectedLineId] = useState("");
+  const [subtitlePreview, setSubtitlePreview] = useState<{ filename: string; text: string; lines: SubtitleLine[] } | null>(null);
   const [lineForm, setLineForm] = useState({
     englishText: "",
     chineseText: "",
@@ -155,119 +189,345 @@ export function AdminWorkbench({
     difficulty: "B1",
     keywords: ""
   });
+  const [seriesEditForm, setSeriesEditForm] = useState({
+    title: "",
+    originalTitle: "",
+    description: "",
+    coverUrl: "",
+    difficulty: "B1",
+    genre: ""
+  });
+  const [episodeEditForm, setEpisodeEditForm] = useState({
+    seasonNumber: 1,
+    episodeNumber: 1,
+    title: "",
+    description: "",
+    mediaUrl: "",
+    durationMinutes: 22
+  });
 
   const episodes = useMemo(() => series.flatMap((item) => item.episodes.map((episode) => ({ ...episode, seriesTitle: item.title }))), [series]);
   const totalEpisodes = episodes.length;
   const adminCount = users.filter((user) => user.role === "admin").length;
   const latestJob = jobs[0];
 
-  function updateEpisodeSeries(seriesId: string) {
-    const targetSeries = series.find((item) => item.id === seriesId);
-    setEpisodeForm((current) => ({
-      ...current,
-      seriesId,
-      episodeNumber: nextEpisodeNumber(targetSeries)
-    }));
-  }
-
-  async function submitSeries(event: React.FormEvent<HTMLFormElement>) {
+  async function scanAutoImportDirectory(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setIsSubmitting(true);
-    setMessage("创建剧集中");
-    const payload = {
-      ...seriesForm,
-      originalTitle: seriesForm.originalTitle || seriesForm.title,
-      description: seriesForm.description || "个人导入剧集",
-      coverUrl: seriesForm.coverUrl || defaultCoverUrl,
-      difficulty: seriesForm.difficulty || "B1",
-      genre: seriesForm.genre || "生活 / 情景"
-    };
-    const response = await postJson<SeriesResponse>("/api/admin/series", payload);
 
-    if (response) {
-      const nextSeries = mapSeriesResponse(response);
-      setSeries((current) => [nextSeries, ...current]);
-      setEpisodeForm((current) => ({ ...current, seriesId: nextSeries.id, episodeNumber: 1 }));
-      setMessage("剧集已创建");
-      setSeriesForm((current) => ({ ...current, title: "", originalTitle: "", description: "" }));
-    } else {
-      setMessage("剧集创建失败");
-    }
-
-    setIsSubmitting(false);
-  }
-
-  async function submitEpisode(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
-    setMessage("创建集数中");
-    const response = await postJson<EpisodeResponse>("/api/admin/episodes", {
-      ...episodeForm,
-      description: episodeForm.description || episodeForm.title,
-      durationSeconds: Math.max(1, episodeForm.durationMinutes) * 60
-    });
-
-    if (response) {
-      const nextEpisode = mapEpisodeResponse(response, episodeForm);
-      setSeries((current) =>
-        current.map((item) => (item.id === nextEpisode.seriesId ? { ...item, episodes: [...item.episodes, nextEpisode] } : item))
-      );
-      setSubtitleForm((current) => ({ ...current, episodeId: nextEpisode.id }));
-      setEpisodeForm((current) => ({
-        ...current,
-        episodeNumber: current.episodeNumber + 1,
-        title: "",
-        description: ""
-      }));
-      setMessage("集数已创建");
-    } else {
-      setMessage("集数创建失败");
-    }
-
-    setIsSubmitting(false);
-  }
-
-  async function submitSubtitles(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
-    setMessage("导入字幕中");
-    const payload = {
-      ...subtitleForm,
-      sourceFilename: subtitleForm.sourceFilename || "subtitles.srt"
-    };
-    const response = await postJson<ImportResponse>("/api/admin/import-subtitles", payload);
-
-    if (response) {
-      const nextJob = mapImportResponse(response, subtitleForm.sourceFilename);
-      setJobs((current) => [nextJob, ...current]);
-      setEditorEpisodeId(subtitleForm.episodeId);
-      setActivePanel("editor");
-      await loadSubtitleLines(subtitleForm.episodeId);
-      setMessage(`${nextJob.result}，可继续校对时间轴`);
-    } else {
-      setMessage("字幕导入失败");
-    }
-
-    setIsSubmitting(false);
-  }
-
-  async function readSubtitleFile(file: File | null) {
-    if (!file) {
+    if (!autoImportDirectory.trim()) {
+      setMessage("请填写媒体目录");
       return;
     }
 
-    const text = await file.text().catch(() => "");
+    setAutoImportMode("scanning");
+    setMessage("扫描媒体目录中");
+    const response = await postJsonWithError<AutoImportDraft>("/api/admin/import-batch", {
+      action: "scan",
+      directory: autoImportDirectory
+    });
 
-    if (text) {
-      setSubtitleForm((current) => ({
-        ...current,
-        sourceFilename: file.name,
-        subtitleText: text
-      }));
-      setMessage("字幕文件已读取");
+    if (response.data) {
+      setAutoImportDraft(response.data);
+      setAutoImportDirectory(response.data.directory);
+      setMessage(`识别到 ${response.data.episodes.length} 集，确认后导入`);
     } else {
-      setMessage("字幕文件读取失败");
+      setAutoImportDraft(null);
+      setMessage(response.error ?? "目录扫描失败");
     }
+
+    setAutoImportMode("idle");
+  }
+
+  async function confirmAutoImport() {
+    if (!autoImportDraft) {
+      return;
+    }
+
+    setAutoImportMode("importing");
+    setMessage("确认导入中");
+    const response = await postJsonWithError<AutoImportResult>("/api/admin/import-batch", {
+      action: "import",
+      directory: autoImportDraft.directory,
+      series: autoImportDraft.series
+    });
+
+    if (response.data) {
+      const importedSeries = response.data.series;
+      const firstEpisode = importedSeries.episodes[0];
+
+      setSeries((current) => [importedSeries, ...current]);
+      setJobs((current) => [...response.data!.jobs, ...current]);
+      setAutoImportDraft(null);
+
+      if (firstEpisode) {
+        setEditorEpisodeId(firstEpisode.id);
+        setActivePanel("editor");
+        await loadSubtitleLines(firstEpisode.id);
+      }
+
+      setMessage(`已导入 ${importedSeries.title}，共 ${importedSeries.episodes.length} 集`);
+    } else {
+      setMessage(response.error ?? "自动导入失败");
+    }
+
+    setAutoImportMode("idle");
+  }
+
+  function updateAutoImportSeries<K extends keyof AutoImportSeriesDraft>(key: K, value: AutoImportSeriesDraft[K]) {
+    setAutoImportDraft((current) =>
+      current
+        ? {
+            ...current,
+            series: {
+              ...current.series,
+              [key]: value
+            }
+          }
+        : current
+    );
+  }
+
+  function beginEditSeries(item: Series) {
+    setEditingEpisodeId("");
+    setEditingSeriesId(item.id);
+    setSeriesEditForm({
+      title: item.title,
+      originalTitle: item.originalTitle,
+      description: item.description,
+      coverUrl: item.coverUrl,
+      difficulty: item.difficulty,
+      genre: item.genre
+    });
+  }
+
+  function beginEditEpisode(episode: Episode) {
+    setEditingSeriesId("");
+    setEditingEpisodeId(episode.id);
+    setEpisodeEditForm({
+      seasonNumber: episode.seasonNumber,
+      episodeNumber: episode.episodeNumber,
+      title: episode.title,
+      description: episode.description,
+      mediaUrl: episode.mediaUrl,
+      durationMinutes: Math.max(1, Math.round(episode.durationSeconds / 60))
+    });
+  }
+
+  async function saveEditedSeries(event: React.FormEvent<HTMLFormElement>, item: Series) {
+    event.preventDefault();
+    setSavingContentId(`series:${item.id}`);
+    setMessage("保存剧集中");
+
+    const response = await requestJsonWithError<SeriesResponse>(`/api/admin/series/${item.id}`, {
+      method: "PATCH",
+      body: {
+        ...seriesEditForm,
+        originalTitle: seriesEditForm.originalTitle || seriesEditForm.title,
+        description: seriesEditForm.description || "个人导入剧集",
+        coverUrl: seriesEditForm.coverUrl || defaultCoverUrl,
+        difficulty: seriesEditForm.difficulty || "B1",
+        genre: seriesEditForm.genre || "生活 / 情景"
+      }
+    });
+
+    if (response.data) {
+      const updated = mapSeriesResponse(response.data);
+
+      setSeries((current) =>
+        current.map((entry) =>
+          entry.id === item.id
+            ? {
+                ...entry,
+                title: updated.title,
+                originalTitle: updated.originalTitle,
+                description: updated.description,
+                coverUrl: updated.coverUrl,
+                difficulty: updated.difficulty,
+                genre: updated.genre
+              }
+            : entry
+        )
+      );
+      setEditingSeriesId("");
+      setMessage("剧集已保存");
+    } else {
+      setMessage(response.error ?? "剧集保存失败");
+    }
+
+    setSavingContentId("");
+  }
+
+  async function saveEditedEpisode(event: React.FormEvent<HTMLFormElement>, episode: Episode) {
+    event.preventDefault();
+    setSavingContentId(`episode:${episode.id}`);
+    setMessage("保存集数中");
+
+    const response = await requestJsonWithError<EpisodeResponse>(`/api/admin/episodes/${episode.id}`, {
+      method: "PATCH",
+      body: {
+        seasonNumber: episodeEditForm.seasonNumber,
+        episodeNumber: episodeEditForm.episodeNumber,
+        title: episodeEditForm.title,
+        description: episodeEditForm.description || episodeEditForm.title,
+        mediaUrl: episodeEditForm.mediaUrl,
+        durationSeconds: Math.max(1, episodeEditForm.durationMinutes) * 60
+      }
+    });
+
+    if (response.data) {
+      const updated = mapEpisodeResponse(response.data, {
+        seriesId: episode.seriesId,
+        seasonNumber: episodeEditForm.seasonNumber,
+        episodeNumber: episodeEditForm.episodeNumber,
+        durationMinutes: episodeEditForm.durationMinutes
+      });
+
+      setSeries((current) =>
+        current.map((item) =>
+          item.id === updated.seriesId
+            ? {
+                ...item,
+                episodes: sortEpisodesForAdmin(item.episodes.map((entry) => (entry.id === updated.id ? updated : entry)))
+              }
+            : item
+        )
+      );
+      setEditingEpisodeId("");
+      setMessage("集数已保存");
+    } else {
+      setMessage(response.error === "Episode number already exists" ? "同一剧集下已存在这个季集号" : response.error ?? "集数保存失败");
+    }
+
+    setSavingContentId("");
+  }
+
+  async function deleteSeries(item: Series) {
+    if (!window.confirm(`删除「${item.title}」及其全部集数？`)) {
+      return;
+    }
+
+    setDeletingContentId(`series:${item.id}`);
+    setMessage("删除剧集中");
+    const response = await requestJsonWithError<{ id: string }>(`/api/admin/series/${item.id}`, { method: "DELETE" });
+
+    if (response.data) {
+      const remainingSeries = series.filter((entry) => entry.id !== item.id);
+
+      setSeries(remainingSeries);
+      if (editingSeriesId === item.id) {
+        setEditingSeriesId("");
+      }
+      setMessage("剧集已删除");
+    } else {
+      setMessage(response.error ?? "剧集删除失败");
+    }
+
+    setDeletingContentId("");
+  }
+
+  async function deleteEpisode(episode: Episode) {
+    if (!window.confirm(`删除 S${episode.seasonNumber}E${episode.episodeNumber}「${episode.title}」？`)) {
+      return;
+    }
+
+    setDeletingContentId(`episode:${episode.id}`);
+    setMessage("删除集数中");
+    const response = await requestJsonWithError<{ id: string; seriesId: string }>(`/api/admin/episodes/${episode.id}`, { method: "DELETE" });
+
+    if (response.data) {
+      const nextSiblingEpisodeId = series.find((item) => item.id === episode.seriesId)?.episodes.find((entry) => entry.id !== episode.id)?.id ?? "";
+      const nextEditorEpisodeId = editorEpisodeId === episode.id ? nextSiblingEpisodeId : editorEpisodeId;
+
+      setSeries((current) =>
+        current.map((item) => (item.id === episode.seriesId ? { ...item, episodes: item.episodes.filter((entry) => entry.id !== episode.id) } : item))
+      );
+
+      if (editorEpisodeId === episode.id) {
+        setEditorEpisodeId(nextEditorEpisodeId);
+        setSubtitleLines([]);
+        setSelectedLineId("");
+      }
+      if (editingEpisodeId === episode.id) {
+        setEditingEpisodeId("");
+      }
+      setMessage("集数已删除");
+    } else {
+      setMessage(response.error ?? "集数删除失败");
+    }
+
+    setDeletingContentId("");
+  }
+
+  async function reimportSubtitleFile(file: File | null) {
+    if (!file || !editorEpisodeId) {
+      setSubtitlePreview(null);
+      return;
+    }
+
+    setMessage("读取字幕文件中");
+    const text = await file.text().catch(() => "");
+    if (!text) {
+      setMessage("字幕文件读取失败");
+      setSubtitlePreview(null);
+      return;
+    }
+
+    // 解析字幕预览
+    const parsedLines = parseSubtitleText(text);
+    if (parsedLines.length === 0) {
+      setMessage("字幕文件未解析出有效内容");
+      setSubtitlePreview(null);
+      return;
+    }
+
+    // 转换为预览格式
+    const previewLines: SubtitleLine[] = parsedLines.map((line) => ({
+      id: `preview-${line.lineIndex}`,
+      episodeId: editorEpisodeId,
+      lineIndex: line.lineIndex,
+      startMs: line.startMs,
+      endMs: line.endMs,
+      englishText: line.englishText,
+      chineseText: line.chineseText,
+      difficulty: "",
+      keywords: line.keywords
+    }));
+
+    setSubtitlePreview({ filename: file.name, text, lines: previewLines });
+    setMessage(`预览 ${file.name}，共 ${previewLines.length} 行字幕`);
+  }
+
+  async function confirmReimportSubtitle() {
+    if (!subtitlePreview || !editorEpisodeId) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setMessage("重新导入字幕中");
+
+    const result = await postJsonWithError<ImportResponse>("/api/admin/import-subtitles", {
+      episodeId: editorEpisodeId,
+      sourceFilename: subtitlePreview.filename,
+      subtitleText: subtitlePreview.text
+    });
+
+    if (result.data) {
+      const nextJob = mapImportResponse(result.data, subtitlePreview.filename);
+      setJobs((current) => [nextJob, ...current]);
+      setSubtitlePreview(null);
+      // 重新加载字幕列表
+      await loadSubtitleLines(editorEpisodeId);
+      setMessage(`${nextJob.result}，字幕已更新`);
+    } else {
+      setMessage(`字幕导入失败：${result.error || "未知错误"}`);
+    }
+
+    setIsSubmitting(false);
+  }
+
+  function cancelReimportSubtitle() {
+    setSubtitlePreview(null);
+    setMessage("");
   }
 
   function selectSubtitleLine(line: SubtitleLine) {
@@ -307,6 +567,7 @@ export function AdminWorkbench({
 
     async function loadEditorLines() {
       setMessage("读取字幕中");
+      setSubtitlePreview(null); // 切换集数时清空预览
       const response = await fetch(`/api/episodes/${editorEpisodeId}/subtitles`).catch(() => null);
       const payload = response ? ((await response.json().catch(() => null)) as { data?: SubtitleLine[] } | null) : null;
       const lines = payload?.data ?? [];
@@ -456,88 +717,22 @@ export function AdminWorkbench({
               <FileUp className="h-5 w-5 text-[color:var(--green)]" aria-hidden="true" />
               <h2 className="text-xl font-bold">导入入口</h2>
             </div>
-            <div className="grid grid-cols-4 gap-2">
-              <PanelButton active={activePanel === "series"} onClick={() => setActivePanel("series")} icon={Plus} label="剧集" />
-              <PanelButton active={activePanel === "episode"} onClick={() => setActivePanel("episode")} icon={Film} label="集数" />
-              <PanelButton active={activePanel === "subtitles"} onClick={() => setActivePanel("subtitles")} icon={FileUp} label="字幕" />
-              <PanelButton active={activePanel === "editor"} onClick={() => setActivePanel("editor")} icon={ListChecks} label="编辑" />
+            <div className="grid grid-cols-2 gap-2">
+              <PanelButton active={activePanel === "auto"} onClick={() => setActivePanel("auto")} icon={FolderInput} label="自动导入" />
+              <PanelButton active={activePanel === "editor"} onClick={() => setActivePanel("editor")} icon={ListChecks} label="字幕编辑" />
             </div>
           </div>
 
-          {activePanel === "series" ? (
-            <form onSubmit={submitSeries} className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
-              <h3 className="font-bold">新建剧集</h3>
+          {activePanel === "auto" ? (
+            <form onSubmit={scanAutoImportDirectory} className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
+              <h3 className="font-bold">自动识别导入</h3>
               <div className="mt-4 grid gap-3">
-                <TextField label="剧名" value={seriesForm.title} required onChange={(value) => setSeriesForm((current) => ({ ...current, title: value }))} />
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <ComboField label="难度" value={seriesForm.difficulty} options={difficultyOptions} required onChange={(value) => setSeriesForm((current) => ({ ...current, difficulty: value }))} />
-                  <ComboField label="题材" value={seriesForm.genre} options={genreOptions} required onChange={(value) => setSeriesForm((current) => ({ ...current, genre: value }))} />
-                </div>
-                <AdvancedFields>
-                  <TextField label="英文名" value={seriesForm.originalTitle} onChange={(value) => setSeriesForm((current) => ({ ...current, originalTitle: value }))} />
-                  <TextArea label="简介" value={seriesForm.description} onChange={(value) => setSeriesForm((current) => ({ ...current, description: value }))} />
-                  <TextField label="封面 URL" value={seriesForm.coverUrl} onChange={(value) => setSeriesForm((current) => ({ ...current, coverUrl: value }))} />
-                </AdvancedFields>
-              </div>
-              <SubmitButton disabled={isSubmitting} label="创建剧集" />
-            </form>
-          ) : null}
-
-          {activePanel === "episode" ? (
-            <form onSubmit={submitEpisode} className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
-              <h3 className="font-bold">新建集数</h3>
-              <div className="mt-4 grid gap-3">
-                <SelectField label="所属剧集" value={episodeForm.seriesId} onChange={updateEpisodeSeries}>
-                  {series.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.title}
-                    </option>
-                  ))}
-                </SelectField>
-                <TextField label="标题" value={episodeForm.title} required onChange={(value) => setEpisodeForm((current) => ({ ...current, title: value }))} />
-                <TextField label="媒体路径" value={episodeForm.mediaUrl} onChange={(value) => setEpisodeForm((current) => ({ ...current, mediaUrl: value }))} />
-                <p className="rounded-md border border-[color:var(--line)] bg-white/50 px-3 py-2 text-xs leading-5 text-[color:var(--muted)]">
-                  私有 Storage 用 bucket/path，例如 media/friends/s01e01.mp4；外部 URL 或 /mock 路径会原样使用。
+                <TextField label="本地媒体目录" value={autoImportDirectory} required onChange={setAutoImportDirectory} />
+                <p className="rounded-md border border-[color:var(--line)] bg-white/45 px-3 py-2 text-xs leading-5 text-[color:var(--muted)]">
+                  填写 LOCAL_MEDIA_ROOT 下的相对目录；视频与同名 .srt / .vtt 放在同一目录或压缩包内，自动识别剧集、字幕。
                 </p>
-                <AdvancedFields>
-                  <div className="grid grid-cols-3 gap-3">
-                    <NumberField label="季" value={episodeForm.seasonNumber} min={1} onChange={(value) => setEpisodeForm((current) => ({ ...current, seasonNumber: value }))} />
-                    <NumberField label="集" value={episodeForm.episodeNumber} min={1} onChange={(value) => setEpisodeForm((current) => ({ ...current, episodeNumber: value }))} />
-                    <NumberField label="分钟" value={episodeForm.durationMinutes} min={1} onChange={(value) => setEpisodeForm((current) => ({ ...current, durationMinutes: value }))} />
-                  </div>
-                  <TextArea label="简介" value={episodeForm.description} onChange={(value) => setEpisodeForm((current) => ({ ...current, description: value }))} />
-                </AdvancedFields>
               </div>
-              <SubmitButton disabled={isSubmitting || !episodeForm.seriesId} label="创建集数" />
-            </form>
-          ) : null}
-
-          {activePanel === "subtitles" ? (
-            <form onSubmit={submitSubtitles} className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
-              <h3 className="font-bold">导入字幕</h3>
-              <div className="mt-4 grid gap-3">
-                <SelectField label="目标集数" value={subtitleForm.episodeId} onChange={(value) => setSubtitleForm((current) => ({ ...current, episodeId: value }))}>
-                  {episodes.map((episode) => (
-                    <option key={episode.id} value={episode.id}>
-                      {episode.seriesTitle} S{episode.seasonNumber}E{episode.episodeNumber} · {episode.title}
-                    </option>
-                  ))}
-                </SelectField>
-                <label className="grid gap-2 text-sm font-semibold">
-                  选择文件
-                  <input
-                    type="file"
-                    accept=".srt,.vtt,text/vtt,text/plain"
-                    onChange={(event) => void readSubtitleFile(event.target.files?.[0] ?? null)}
-                    className="rounded-md border border-[color:var(--line)] bg-white/70 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[color:var(--ink)] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white"
-                  />
-                </label>
-                <TextArea label="SRT / VTT" value={subtitleForm.subtitleText} rows={10} required onChange={(value) => setSubtitleForm((current) => ({ ...current, subtitleText: value }))} />
-                <AdvancedFields>
-                  <TextField label="文件名" value={subtitleForm.sourceFilename} required onChange={(value) => setSubtitleForm((current) => ({ ...current, sourceFilename: value }))} />
-                </AdvancedFields>
-              </div>
-              <SubmitButton disabled={isSubmitting || !subtitleForm.episodeId} label="导入字幕" />
+              <SubmitButton disabled={autoImportMode !== "idle"} label="扫描并导入" />
             </form>
           ) : null}
 
@@ -552,6 +747,62 @@ export function AdminWorkbench({
                     </option>
                   ))}
                 </SelectField>
+
+                <div className="rounded-md border border-[color:var(--line)] bg-white/45 p-3">
+                  <label className="grid gap-2 text-sm font-semibold">
+                    重新导入字幕文件
+                    <input
+                      type="file"
+                      accept=".srt,.vtt,text/vtt,text/plain"
+                      onChange={(event) => void reimportSubtitleFile(event.target.files?.[0] ?? null)}
+                      className="rounded-md border border-[color:var(--line)] bg-white/70 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-[color:var(--ink)] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white"
+                    />
+                    <p className="text-xs text-[color:var(--muted)]">选择 SRT 或 VTT 文件将显示预览</p>
+                  </label>
+                </div>
+
+                {subtitlePreview ? (
+                  <div className="rounded-md border border-[color:var(--amber)] bg-[rgba(184,126,42,0.05)] p-3">
+                    <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words font-semibold text-[color:var(--amber)]">预览：{subtitlePreview.filename}</p>
+                        <p className="mt-1 text-xs text-[color:var(--muted)]">共 {subtitlePreview.lines.length} 行字幕</p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          type="button"
+                          onClick={confirmReimportSubtitle}
+                          disabled={isSubmitting}
+                          className="flex h-9 items-center gap-2 rounded-md bg-[color:var(--amber)] px-3 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+                        >
+                          <Save className="h-4 w-4" aria-hidden="true" />
+                          确认导入
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelReimportSubtitle}
+                          disabled={isSubmitting}
+                          className="flex h-9 items-center gap-2 rounded-md border border-[color:var(--line)] px-3 text-sm font-semibold hover:border-[color:var(--ink)] disabled:cursor-wait disabled:opacity-60"
+                        >
+                          <X className="h-4 w-4" aria-hidden="true" />
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                    <div className="quiet-scrollbar max-h-40 space-y-1 overflow-y-auto rounded border border-[color:var(--line)] bg-white/70 p-2">
+                      {subtitlePreview.lines.slice(0, 20).map((line) => (
+                        <div key={line.id} className="rounded border border-[color:var(--line)] bg-white p-2 text-xs">
+                          <span className="block text-[color:var(--muted)]">第 {line.lineIndex} 句 · {line.startMs}ms - {line.endMs}ms</span>
+                          <span className="mt-1 block font-semibold">{line.englishText}</span>
+                          {line.chineseText ? <span className="mt-0.5 block text-[color:var(--muted)]">{line.chineseText}</span> : null}
+                        </div>
+                      ))}
+                      {subtitlePreview.lines.length > 20 ? (
+                        <p className="py-2 text-center text-xs text-[color:var(--muted)]">... 还有 {subtitlePreview.lines.length - 20} 行字幕</p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="quiet-scrollbar max-h-56 space-y-2 overflow-y-auto rounded-md border border-[color:var(--line)] bg-white/50 p-2">
                   {subtitleLines.map((line) => (
@@ -586,7 +837,11 @@ export function AdminWorkbench({
         </aside>
 
         <div className="grid content-start gap-4">
-          <section className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-5">
+          {activePanel === "auto" && autoImportDraft ? (
+            <AutoImportPreview draft={autoImportDraft} isImporting={autoImportMode === "importing"} onConfirm={() => void confirmAutoImport()} onSeriesChange={updateAutoImportSeries} />
+          ) : null}
+
+          <section className="flex flex-col rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-5">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h2 className="text-xl font-bold">已导入内容</h2>
@@ -594,42 +849,119 @@ export function AdminWorkbench({
               </div>
               {latestJob ? <StatusBadge label={statusText[latestJob.status]} /> : null}
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="quiet-scrollbar mt-4 grid max-h-[600px] gap-3 overflow-y-auto md:grid-cols-2">
               {series.length === 0 ? (
                 <div className="rounded-md border border-[color:var(--line)] p-4 md:col-span-2">
                   <h3 className="font-bold">还没有导入内容</h3>
                   <p className="mt-2 text-sm text-[color:var(--muted)]">先创建剧集，再添加集数和字幕。</p>
                 </div>
               ) : null}
-              {series.map((item) => (
-                <article key={item.id} className="rounded-md border border-[color:var(--line)] p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="truncate font-bold">{item.title}</h3>
-                      <p className="mt-1 text-sm text-[color:var(--muted)]">
-                        {item.episodes.length} 集 · {item.difficulty}
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded border border-[color:var(--line)] px-2 py-1 text-xs font-semibold text-[color:var(--muted)]">{item.genre}</span>
-                  </div>
-                  <div className="mt-3 h-2 rounded-full bg-black/10">
-                    <div className="h-2 rounded-full bg-[color:var(--amber)]" style={{ width: `${item.progress}%` }} />
-                  </div>
-                  <div className="mt-3 space-y-2">
-                    {item.episodes.slice(0, 4).map((episode) => (
-                      <div key={episode.id} className="rounded border border-[color:var(--line)] px-3 py-2 text-sm">
-                        S{episode.seasonNumber}E{episode.episodeNumber} · {episode.title}
+              {series.map((item) => {
+                const isEditingSeries = editingSeriesId === item.id;
+                const isSavingSeries = savingContentId === `series:${item.id}`;
+                const isDeletingSeries = deletingContentId === `series:${item.id}`;
+
+                return (
+                  <article key={item.id} className="rounded-md border border-[color:var(--line)] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="truncate font-bold">{item.title}</h3>
+                        <p className="mt-1 text-sm text-[color:var(--muted)]">
+                          {item.episodes.length} 集 · {item.difficulty}
+                        </p>
                       </div>
-                    ))}
-                  </div>
-                </article>
-              ))}
+                      <div className="flex shrink-0 items-center gap-1">
+                        <StatusBadge label={item.genre || "未分类"} />
+                        <ContentIconButton icon={Pencil} label="编辑剧集" onClick={() => beginEditSeries(item)} active={isEditingSeries} disabled={isSavingSeries || isDeletingSeries} />
+                        <ContentIconButton icon={Trash2} label="删除剧集" onClick={() => void deleteSeries(item)} tone="danger" disabled={isSavingSeries || isDeletingSeries} />
+                      </div>
+                    </div>
+
+                    {isEditingSeries ? (
+                      <form onSubmit={(event) => void saveEditedSeries(event, item)} className="mt-4 grid gap-3 border-t border-[color:var(--line)] pt-4">
+                        <TextField label="剧名" value={seriesEditForm.title} required onChange={(value) => setSeriesEditForm((current) => ({ ...current, title: value }))} />
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <ComboField label="难度" value={seriesEditForm.difficulty} options={difficultyOptions} required onChange={(value) => setSeriesEditForm((current) => ({ ...current, difficulty: value }))} />
+                          <ComboField label="题材" value={seriesEditForm.genre} options={genreOptions} required onChange={(value) => setSeriesEditForm((current) => ({ ...current, genre: value }))} />
+                        </div>
+                        <TextField label="英文名" value={seriesEditForm.originalTitle} onChange={(value) => setSeriesEditForm((current) => ({ ...current, originalTitle: value }))} />
+                        <TextField label="封面 URL" value={seriesEditForm.coverUrl} onChange={(value) => setSeriesEditForm((current) => ({ ...current, coverUrl: value }))} />
+                        <TextArea label="简介" value={seriesEditForm.description} rows={2} onChange={(value) => setSeriesEditForm((current) => ({ ...current, description: value }))} />
+                        <div className="grid grid-cols-2 gap-2">
+                          <button type="submit" disabled={isSavingSeries} className="ink-action flex h-10 items-center justify-center gap-2 rounded-md text-sm font-semibold disabled:cursor-wait disabled:opacity-60">
+                            <Save className="h-4 w-4" aria-hidden="true" />
+                            {isSavingSeries ? "保存中" : "保存"}
+                          </button>
+                          <button type="button" onClick={() => setEditingSeriesId("")} className="flex h-10 items-center justify-center gap-2 rounded-md border border-[color:var(--line)] text-sm font-semibold hover:border-[color:var(--ink)]">
+                            <X className="h-4 w-4" aria-hidden="true" />
+                            取消
+                          </button>
+                        </div>
+                      </form>
+                    ) : null}
+
+                    <div className="mt-3 h-2 rounded-full bg-black/10">
+                      <div className="h-2 rounded-full bg-[color:var(--amber)]" style={{ width: `${item.progress}%` }} />
+                    </div>
+                    <div className="quiet-scrollbar mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+                      {item.episodes.length === 0 ? (
+                        <div className="rounded border border-dashed border-[color:var(--line)] px-3 py-2 text-sm text-[color:var(--muted)]">暂无集数</div>
+                      ) : null}
+                      {item.episodes.map((episode) => {
+                        const isEditingEpisode = editingEpisodeId === episode.id;
+                        const isSavingEpisode = savingContentId === `episode:${episode.id}`;
+                        const isDeletingEpisode = deletingContentId === `episode:${episode.id}`;
+
+                        return (
+                          <article key={episode.id} className="rounded border border-[color:var(--line)] px-3 py-2 text-sm">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold">
+                                  S{episode.seasonNumber}E{episode.episodeNumber} · {episode.title}
+                                </p>
+                                <p className="mt-1 truncate text-xs text-[color:var(--muted)]">{episode.mediaUrl || "未设置媒体"}</p>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <ContentIconButton icon={Pencil} label="编辑集数" onClick={() => beginEditEpisode(episode)} active={isEditingEpisode} disabled={isSavingEpisode || isDeletingEpisode} />
+                                <ContentIconButton icon={Trash2} label="删除集数" onClick={() => void deleteEpisode(episode)} tone="danger" disabled={isSavingEpisode || isDeletingEpisode} />
+                              </div>
+                            </div>
+
+                            {isEditingEpisode ? (
+                              <form onSubmit={(event) => void saveEditedEpisode(event, episode)} className="mt-3 grid gap-3 border-t border-[color:var(--line)] pt-3">
+                                <div className="grid grid-cols-3 gap-2">
+                                  <NumberField label="季" value={episodeEditForm.seasonNumber} min={1} onChange={(value) => setEpisodeEditForm((current) => ({ ...current, seasonNumber: value }))} />
+                                  <NumberField label="集" value={episodeEditForm.episodeNumber} min={1} onChange={(value) => setEpisodeEditForm((current) => ({ ...current, episodeNumber: value }))} />
+                                  <NumberField label="分钟" value={episodeEditForm.durationMinutes} min={1} onChange={(value) => setEpisodeEditForm((current) => ({ ...current, durationMinutes: value }))} />
+                                </div>
+                                <TextField label="标题" value={episodeEditForm.title} required onChange={(value) => setEpisodeEditForm((current) => ({ ...current, title: value }))} />
+                                <TextField label="媒体路径" value={episodeEditForm.mediaUrl} onChange={(value) => setEpisodeEditForm((current) => ({ ...current, mediaUrl: value }))} />
+                                <TextArea label="简介" value={episodeEditForm.description} rows={2} onChange={(value) => setEpisodeEditForm((current) => ({ ...current, description: value }))} />
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button type="submit" disabled={isSavingEpisode} className="ink-action flex h-10 items-center justify-center gap-2 rounded-md text-sm font-semibold disabled:cursor-wait disabled:opacity-60">
+                                    <Save className="h-4 w-4" aria-hidden="true" />
+                                    {isSavingEpisode ? "保存中" : "保存"}
+                                  </button>
+                                  <button type="button" onClick={() => setEditingEpisodeId("")} className="flex h-10 items-center justify-center gap-2 rounded-md border border-[color:var(--line)] text-sm font-semibold hover:border-[color:var(--ink)]">
+                                    <X className="h-4 w-4" aria-hidden="true" />
+                                    取消
+                                  </button>
+                                </div>
+                              </form>
+                            ) : null}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </section>
 
-          <section className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-5">
+          <section className="flex flex-col rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-5">
             <h2 className="text-xl font-bold">导入任务</h2>
-            <div className="mt-4 space-y-3">
+            <div className="quiet-scrollbar mt-4 max-h-[400px] space-y-3 overflow-y-auto">
               {jobs.length === 0 ? (
                 <div className="rounded-md border border-[color:var(--line)] p-4">
                   <h3 className="font-bold">暂无导入任务</h3>
@@ -816,6 +1148,109 @@ export function AdminWorkbench({
   }
 }
 
+function AutoImportPreview({
+  draft,
+  isImporting,
+  onConfirm,
+  onSeriesChange
+}: {
+  draft: AutoImportDraft;
+  isImporting: boolean;
+  onConfirm: () => void;
+  onSeriesChange: <K extends keyof AutoImportSeriesDraft>(key: K, value: AutoImportSeriesDraft[K]) => void;
+}) {
+  const matchedSubtitleCount = draft.episodes.filter((episode) => episode.subtitlePath).length;
+  const hasDuplicateEpisode = draft.warnings.some((warning) => warning.includes("重复集号"));
+  const canImport = draft.episodes.length > 0 && !hasDuplicateEpisode && !isImporting;
+  const sourceLabel = (label: string, key: keyof AutoImportSeriesDraft) => `${label}（${formatFieldSource(draft.seriesFieldSources?.[key])}）`;
+
+  return (
+    <section className="rounded-md border border-[color:var(--ink)] bg-[color:var(--paper)] p-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold">自动识别草稿</h2>
+          <p className="mt-1 text-sm text-[color:var(--muted)]">
+            {draft.directory} · {draft.episodes.length} 集 · {matchedSubtitleCount} 个字幕
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={!canImport}
+          className="ink-action flex h-10 items-center gap-2 rounded-md px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Save className="h-4 w-4" aria-hidden="true" />
+          {isImporting ? "导入中" : "确认导入"}
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <TextField label={sourceLabel("剧名", "title")} value={draft.series.title} required onChange={(value) => onSeriesChange("title", value)} />
+        <ComboField label={sourceLabel("难度", "difficulty")} value={draft.series.difficulty} options={difficultyOptions} required onChange={(value) => onSeriesChange("difficulty", value)} />
+        <ComboField label={sourceLabel("题材", "genre")} value={draft.series.genre} options={genreOptions} required onChange={(value) => onSeriesChange("genre", value)} />
+        <div className="md:col-span-3">
+          <TextArea label={sourceLabel("简介", "description")} value={draft.series.description} rows={2} required onChange={(value) => onSeriesChange("description", value)} />
+        </div>
+      </div>
+
+      {draft.warnings.length > 0 ? (
+        <div className="mt-4 grid gap-2">
+          {draft.warnings.map((warning) => (
+            <p key={warning} className={cn("rounded-md border px-3 py-2 text-sm", warning.includes("重复集号") ? "border-[color:var(--red)]/35 bg-[rgba(190,68,51,0.08)] text-[color:var(--red)]" : "border-[color:var(--amber)]/35 bg-[rgba(184,126,42,0.1)] text-[color:var(--amber)]")}>
+              {warning}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="quiet-scrollbar mt-4 grid max-h-[500px] gap-2 overflow-y-auto">
+        {draft.episodes.map((episode) => (
+          <article key={episode.draftId} className="rounded-md border border-[color:var(--line)] bg-white/60 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate font-bold">
+                  S{episode.seasonNumber}E{episode.episodeNumber} · {episode.title}
+                </h3>
+                <p className="mt-1 truncate text-xs text-[color:var(--muted)]">{episode.mediaFilename}</p>
+              </div>
+              <StatusBadge label={episode.subtitlePath ? `${episode.subtitleLineCount} 行字幕` : "缺字幕"} />
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-[color:var(--muted)] sm:grid-cols-[1fr_120px]">
+              <span className="truncate">{episode.subtitleFilename ?? "未匹配同名字幕"}</span>
+              <span className="sm:text-right">{formatDurationMinutes(episode.durationSeconds)}</span>
+            </div>
+            {episode.issues.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {episode.issues.map((issue) => (
+                  <span key={issue} className="rounded border border-[color:var(--amber)]/35 px-2 py-1 text-xs font-semibold text-[color:var(--amber)]">
+                    {issue}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function formatFieldSource(source?: AutoImportSeriesFieldSource) {
+  if (source === "metadata") {
+    return "元数据";
+  }
+
+  if (source === "filename") {
+    return "文件名";
+  }
+
+  return "默认";
+}
+
+function formatDurationMinutes(seconds: number) {
+  return `${Math.max(1, Math.round(seconds / 60))} 分钟`;
+}
+
 async function postJson<T>(url: string, body: unknown) {
   const response = await fetch(url, {
     method: "POST",
@@ -829,6 +1264,31 @@ async function postJson<T>(url: string, body: unknown) {
 
   const payload = (await response.json().catch(() => null)) as { data?: T } | null;
   return payload?.data ?? null;
+}
+
+async function postJsonWithError<T>(url: string, body: unknown): Promise<{ data?: T; error?: string }> {
+  return requestJsonWithError(url, { method: "POST", body });
+}
+
+async function requestJsonWithError<T>(
+  url: string,
+  options: {
+    method: "POST" | "PATCH" | "DELETE";
+    body?: unknown;
+  }
+): Promise<{ data?: T; error?: string }> {
+  const response = await fetch(url, {
+    method: options.method,
+    headers: { "Content-Type": "application/json" },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body)
+  }).catch(() => null);
+  const payload = response ? ((await response.json().catch(() => null)) as { data?: T; error?: string } | null) : null;
+
+  if (!response?.ok) {
+    return { error: payload?.error ?? "请求失败" };
+  }
+
+  return { data: payload?.data };
 }
 
 function mapSeriesResponse(row: SeriesResponse): Series {
@@ -899,6 +1359,10 @@ function nextEpisodeNumber(series?: Series) {
   }
 
   return Math.max(...series.episodes.map((episode) => episode.episodeNumber)) + 1;
+}
+
+function sortEpisodesForAdmin(episodes: Episode[]) {
+  return [...episodes].sort((left, right) => left.seasonNumber - right.seasonNumber || left.episodeNumber - right.episodeNumber || left.title.localeCompare(right.title, "zh-CN"));
 }
 
 function splitKeywords(value: string) {
@@ -978,7 +1442,7 @@ function PanelButton({
 }: {
   active: boolean;
   onClick: () => void;
-  icon: typeof Plus;
+  icon: typeof FolderInput;
   label: string;
 }) {
   return (
@@ -995,6 +1459,39 @@ function PanelButton({
 
 function StatusBadge({ label }: { label: string }) {
   return <span className="shrink-0 rounded border border-[color:var(--line)] px-2 py-1 text-xs font-semibold text-[color:var(--muted)]">{label}</span>;
+}
+
+function ContentIconButton({
+  icon: Icon,
+  label,
+  onClick,
+  active,
+  disabled,
+  tone = "neutral"
+}: {
+  icon: typeof Pencil;
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  disabled?: boolean;
+  tone?: "neutral" | "danger";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      className={cn(
+        "grid h-9 w-9 place-items-center rounded-md border border-[color:var(--line)] bg-white/55 transition hover:border-[color:var(--ink)] disabled:cursor-not-allowed disabled:opacity-50",
+        active && "border-[color:var(--ink)] bg-white",
+        tone === "danger" && "text-[color:var(--red)] hover:border-[color:var(--red)]"
+      )}
+    >
+      <Icon className="h-4 w-4" aria-hidden="true" />
+    </button>
+  );
 }
 
 function SubmitButton({ disabled, label }: { disabled: boolean; label: string }) {

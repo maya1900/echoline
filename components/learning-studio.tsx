@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { BookOpen, ChevronLeft, ChevronRight, Eye, EyeOff, ListVideo, Mic, Pause, Play, Repeat, RotateCcw, Volume2 } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, Eye, EyeOff, Gauge, ListVideo, Maximize2, Mic, Minimize2, Pause, Play, Repeat, RotateCcw, Volume2 } from "lucide-react";
+import { SpeakWordButton } from "@/components/speak-word-button";
 import { convertAudioBlobToWavFile } from "@/lib/audio/wav";
 import type { DictionaryEntry, Episode, LearningMode, RepeatAttempt, Series, SubtitleLine } from "@/lib/types";
 import { cn, msToClock } from "@/lib/utils";
@@ -15,7 +16,19 @@ const modes: { id: LearningMode; label: string }[] = [
   { id: "call_response", label: "接下一句" }
 ];
 
+const repeatCompletionThreshold = 60;
+
 type MicrophoneStatus = "idle" | "checking" | "testing" | "ready" | "quiet" | "blocked" | "unsupported";
+type FullscreenDocument = Document & {
+  webkitExitFullscreen?: () => Promise<void> | void;
+  webkitFullscreenElement?: Element | null;
+};
+type FullscreenElement = HTMLDivElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+type FullscreenVideoElement = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+};
 
 function readSubtitleMaskSettings(episodeId: string) {
   const stored = window.localStorage.getItem(`subtitle-mask:${episodeId}`);
@@ -36,6 +49,24 @@ function readSubtitleMaskSettings(episodeId: string) {
   }
 }
 
+function shouldIgnoreLearningShortcut(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {
+    return true;
+  }
+
+  const target = event.target;
+
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  if (target.closest("input, textarea, select, [contenteditable='true']")) {
+    return true;
+  }
+
+  return false;
+}
+
 export function LearningStudio({
   episode,
   parentSeries,
@@ -47,6 +78,7 @@ export function LearningStudio({
   lines: SubtitleLine[];
   initialLineId?: string;
 }) {
+  const playerFrameRef = useRef<HTMLDivElement>(null);
   const mediaRef = useRef<HTMLVideoElement>(null);
   const subtitleQueueRef = useRef<HTMLDivElement>(null);
   const subtitleButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -61,10 +93,11 @@ export function LearningStudio({
   const [showEnglish, setShowEnglish] = useState(true);
   const [showChinese, setShowChinese] = useState(true);
   const [speed, setSpeed] = useState(0.9);
+  const [volume, setVolume] = useState(1.0);
   const [loopCount, setLoopCount] = useState(3);
   const [maskBurnedSubtitles, setMaskBurnedSubtitles] = useState(true);
   const [maskHeight, setMaskHeight] = useState(11);
-  const [maskBottom, setMaskBottom] = useState(15);
+  const [maskBottom, setMaskBottom] = useState(7);
   const [isPlaying, setIsPlaying] = useState(false);
   const [mediaUrl, setMediaUrl] = useState(episode.mediaUrl);
   const [mediaError, setMediaError] = useState("");
@@ -81,6 +114,7 @@ export function LearningStudio({
   const [lookup, setLookup] = useState<DictionaryEntry | null>(null);
   const [lookupStatus, setLookupStatus] = useState("");
   const [vocabStatus, setVocabStatus] = useState("");
+  const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
 
   const current = lines[lineIndex] ?? lines[0];
   const next = lines[lineIndex + 1];
@@ -130,16 +164,51 @@ export function LearningStudio({
   }, [speed]);
 
   useEffect(() => {
+    if (mediaRef.current) {
+      mediaRef.current.volume = volume;
+    }
+  }, [volume]);
+
+  useEffect(() => {
     autoRecordLineRef.current = null;
   }, [current.id, mode]);
+
+  useEffect(() => {
+    function syncFullscreenState() {
+      const fullscreenDocument = document as FullscreenDocument;
+      const fullscreenElement = document.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement ?? null;
+
+      setIsPlayerFullscreen(Boolean(playerFrameRef.current && fullscreenElement === playerFrameRef.current));
+    }
+
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    document.addEventListener("webkitfullscreenchange", syncFullscreenState);
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+      document.removeEventListener("webkitfullscreenchange", syncFullscreenState);
+    };
+  }, []);
 
   useEffect(() => {
     if (!followPlayback) {
       return;
     }
 
-    subtitleButtonRefs.current[current.id]?.scrollIntoView({
-      block: "center",
+    const queue = subtitleQueueRef.current;
+    const activeButton = subtitleButtonRefs.current[current.id];
+
+    if (!queue || !activeButton) {
+      return;
+    }
+
+    const queueRect = queue.getBoundingClientRect();
+    const activeRect = activeButton.getBoundingClientRect();
+    const activeCenter = activeRect.top - queueRect.top + queue.scrollTop + activeRect.height / 2;
+    const maxScrollTop = Math.max(queue.scrollHeight - queue.clientHeight, 0);
+    const nextScrollTop = Math.min(Math.max(activeCenter - queue.clientHeight / 2, 0), maxScrollTop);
+
+    queue.scrollTo({
+      top: nextScrollTop,
       behavior: "smooth"
     });
   }, [current.id, followPlayback]);
@@ -246,7 +315,7 @@ export function LearningStudio({
     stopRecordingTracks();
     setIsRecording(false);
     setLineIndex(nextIndex);
-    seekToLine(lines[nextIndex]);
+    void startPlaybackForIndex(nextIndex, { forceFromStart: true });
   }
 
   async function togglePlayback() {
@@ -263,7 +332,62 @@ export function LearningStudio({
       return;
     }
 
+    await startPlaybackForIndex(lineIndex);
+  }
+
+  async function togglePlayerFullscreen() {
+    const frame = playerFrameRef.current as FullscreenElement | null;
+
+    if (!frame) {
+      return;
+    }
+
+    const fullscreenDocument = document as FullscreenDocument;
+    const isFullscreen = Boolean(document.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement);
+
+    try {
+      if (isFullscreen) {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else {
+          await fullscreenDocument.webkitExitFullscreen?.();
+        }
+      } else if (frame.requestFullscreen) {
+        await frame.requestFullscreen();
+      } else if (frame.webkitRequestFullscreen) {
+        await frame.webkitRequestFullscreen();
+      } else {
+        const video = mediaRef.current as FullscreenVideoElement | null;
+
+        if (!video?.webkitEnterFullscreen) {
+          setMediaError("当前浏览器不支持全屏播放。");
+          return;
+        }
+
+        video.webkitEnterFullscreen();
+      }
+
+      setMediaError("");
+    } catch {
+      setMediaError("无法进入全屏，请检查浏览器权限或手动使用系统全屏。");
+    }
+  }
+
+  async function startPlaybackForIndex(index: number, { forceFromStart = false }: { forceFromStart?: boolean } = {}) {
+    const media = mediaRef.current;
+    const line = lines[index] ?? lines[0];
+
+    if (!line) {
+      return;
+    }
+
+    if (!media) {
+      setIsPlaying(true);
+      return;
+    }
+
     const shouldAutoRecord = mode === "repeat" || mode === "call_response";
+    const lineTarget = mode === "call_response" ? lines[index + 1] ?? line : line;
 
     if (shouldAutoRecord && microphoneStatus !== "ready") {
       const isMicrophoneReady = await prepareMicrophone();
@@ -275,25 +399,27 @@ export function LearningStudio({
 
     if (mode !== "rough") {
       const currentMs = media.currentTime * 1000;
-      const shouldRestartLine = currentMs < playbackLine.startMs || currentMs >= playbackLine.endMs;
+      const shouldRestartLine = forceFromStart || currentMs < line.startMs || currentMs >= line.endMs;
 
       if (shouldRestartLine) {
-        media.currentTime = playbackLine.startMs / 1000;
+        media.currentTime = line.startMs / 1000;
       }
 
       if (mode === "loop" && shouldRestartLine) {
         setLoopPass(0);
       }
+    } else if (forceFromStart) {
+      media.currentTime = line.startMs / 1000;
     }
 
     media.playbackRate = speed;
-    autoRecordLineRef.current = mode === "repeat" || mode === "call_response" ? targetLine.id : null;
+    autoRecordLineRef.current = shouldAutoRecord ? lineTarget.id : null;
 
     try {
       await media.play();
       setMediaError("");
     } catch {
-      setMediaError("当前媒体不可播放，请检查媒体文件或 Supabase Storage 签名。");
+      setMediaError("当前媒体不可播放，请检查本地媒体文件或外部媒体地址。");
       setIsPlaying(false);
     }
   }
@@ -330,7 +456,7 @@ export function LearningStudio({
 
     media.pause();
     setIsPlaying(false);
-    if (mode !== "call_response") {
+    if (mode === "intensive" || mode === "loop") {
       void saveProgress(current, { completed: true, repeatCount: mode === "loop" ? loopCount : 0 });
     }
 
@@ -477,7 +603,7 @@ export function LearningStudio({
   async function prepareMicrophone() {
     if (!isMicrophoneSupported()) {
       setMicrophoneStatus("unsupported");
-      setMicrophoneMessage("当前浏览器不支持录音，可使用文本演示评分。");
+      setMicrophoneMessage("当前浏览器不支持录音，无法进行跟读评分。");
       setMicrophoneLevel(0);
       return false;
     }
@@ -544,8 +670,7 @@ export function LearningStudio({
     }
 
     if (!isMicrophoneSupported()) {
-      setAttemptStatus("当前浏览器不支持录音，已使用文本演示评分");
-      await submitRecording();
+      setAttemptStatus("当前浏览器不支持录音，无法进行跟读评分");
       return;
     }
 
@@ -694,10 +819,28 @@ export function LearningStudio({
     const nextAttempt = payload?.data;
 
     if (nextAttempt) {
-      setAttempt(nextAttempt);
       setMicrophoneMessage("麦克风已准备，播放完会自动录音。");
-      setAttemptStatus("");
-      void saveProgress(targetLine, { completed: true, repeatCount: 1, bestScore: nextAttempt.overall });
+
+      if (nextAttempt.scorable === false || nextAttempt.emptyTranscript) {
+        setAttempt(null);
+        setAttemptStatus(nextAttempt.reason ?? nextAttempt.feedback ?? "未获得真实转写，本次不计入完成。");
+        return;
+      }
+
+      setAttempt(nextAttempt);
+
+      const canCompleteRepeat =
+        nextAttempt.transcript.trim().length > 0 &&
+        Number.isFinite(nextAttempt.overall) &&
+        nextAttempt.overall >= repeatCompletionThreshold;
+
+      if (canCompleteRepeat) {
+        setAttemptStatus("");
+        void saveProgress(targetLine, { completed: true, repeatCount: 1, bestScore: nextAttempt.overall });
+      } else {
+        setAttemptStatus(nextAttempt.reason ?? nextAttempt.feedback ?? `分数未达到 ${repeatCompletionThreshold}，请再练一次。`);
+      }
+
       return;
     }
 
@@ -714,11 +857,53 @@ export function LearningStudio({
     window.localStorage.setItem(`subtitle-mask:${episode.id}`, JSON.stringify({ height, bottom }));
   }
 
+  useEffect(() => {
+    function handleLearningKeyDown(event: KeyboardEvent) {
+      if (shouldIgnoreLearningShortcut(event)) {
+        return;
+      }
+
+      if (event.repeat && event.code !== "Escape") {
+        return;
+      }
+
+      if (event.code === "Escape" && isRecording) {
+        event.preventDefault();
+        cancelRecording();
+        return;
+      }
+
+      if (isRecording || isSubmittingAttempt) {
+        return;
+      }
+
+      if (event.code === "Space") {
+        event.preventDefault();
+        void togglePlayback();
+        return;
+      }
+
+      if (event.code === "ArrowLeft") {
+        event.preventDefault();
+        move(-1);
+        return;
+      }
+
+      if (event.code === "ArrowRight") {
+        event.preventDefault();
+        move(1);
+      }
+    }
+
+    window.addEventListener("keydown", handleLearningKeyDown);
+    return () => window.removeEventListener("keydown", handleLearningKeyDown);
+  });
+
   return (
-    <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-      <section className="space-y-4">
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <section className="min-w-0 space-y-4">
         <div className="overflow-hidden rounded-md border border-[color:var(--ink)] bg-[color:var(--panel)]">
-          <div className="relative isolate aspect-video min-h-[420px] overflow-hidden bg-black text-white lg:min-h-[560px]">
+          <div ref={playerFrameRef} className={cn("relative isolate overflow-hidden bg-black text-white", isPlayerFullscreen ? "h-screen" : "h-[320px] sm:h-[420px] lg:h-[560px]")}>
             {!mediaUrl ? <img src={parentSeries.coverUrl} alt={parentSeries.title} className="absolute inset-0 h-full w-full object-cover opacity-60" /> : null}
             {mediaUrl ? (
               <video
@@ -745,7 +930,7 @@ export function LearningStudio({
                 aria-hidden="true"
               />
             ) : null}
-            <div className="relative z-20 flex h-full min-h-[420px] flex-col justify-between p-5 sm:p-6 lg:min-h-[560px]">
+            <div className="relative z-20 flex h-full flex-col justify-between p-4 sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm text-white/70">
@@ -753,18 +938,29 @@ export function LearningStudio({
                   </p>
                   <h1 className="mt-1 text-2xl font-bold">{episode.title}</h1>
                 </div>
-                <span className="rounded-md border border-white/20 px-3 py-1 text-sm">{msToClock(current.startMs)} - {msToClock(current.endMs)}</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="rounded-md border border-white/20 px-3 py-1 text-sm">{msToClock(current.startMs)} - {msToClock(current.endMs)}</span>
+                  <button
+                    type="button"
+                    onClick={() => void togglePlayerFullscreen()}
+                    className="grid h-9 w-9 place-items-center rounded-md border border-white/20 bg-white/10 text-white transition hover:border-white/45 hover:bg-white/15"
+                    aria-label={isPlayerFullscreen ? "退出全屏" : "全屏播放"}
+                    title={isPlayerFullscreen ? "退出全屏" : "全屏播放"}
+                  >
+                    {isPlayerFullscreen ? <Minimize2 className="h-4 w-4" aria-hidden="true" /> : <Maximize2 className="h-4 w-4" aria-hidden="true" />}
+                  </button>
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <button onClick={() => move(-1)} className="grid h-11 w-11 place-items-center rounded-md border border-white/20 bg-white/10" aria-label="上一句">
+              <div className="mx-auto grid w-full max-w-xs grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-2">
+                <button onClick={() => move(-1)} className="grid h-11 w-11 place-items-center rounded-md border border-white/20 bg-white/10" aria-label="上一句" aria-keyshortcuts="ArrowLeft">
                   <ChevronLeft className="h-5 w-5" aria-hidden="true" />
                 </button>
-                <button onClick={togglePlayback} className="flex h-11 min-w-32 items-center justify-center gap-2 rounded-md bg-[color:var(--paper)] px-4 font-semibold text-[color:var(--ink)]">
+                <button onClick={togglePlayback} className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-md bg-[color:var(--paper)] px-3 font-semibold text-[color:var(--ink)] sm:px-4" aria-label={isPlaying ? "暂停" : "播放"} aria-keyshortcuts="Space">
                   {isPlaying ? <Pause className="h-4 w-4" aria-hidden="true" /> : <Play className="h-4 w-4" aria-hidden="true" />}
-                  {isPlaying ? "暂停" : "播放"}
+                  <span className="whitespace-nowrap">{isPlaying ? "暂停" : "播放"}</span>
                 </button>
-                <button onClick={() => move(1)} className="grid h-11 w-11 place-items-center rounded-md border border-white/20 bg-white/10" aria-label="下一句">
+                <button onClick={() => move(1)} className="grid h-11 w-11 place-items-center rounded-md border border-white/20 bg-white/10" aria-label="下一句" aria-keyshortcuts="ArrowRight">
                   <ChevronRight className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
@@ -815,10 +1011,17 @@ export function LearningStudio({
               <ControlToggle active={maskBurnedSubtitles} onClick={() => setMaskBurnedSubtitles((value) => !value)} icon={maskBurnedSubtitles ? EyeOff : Eye} label="遮挡硬字幕" />
               <label className="rounded-md border border-[color:var(--line)] p-3 text-sm">
                 <span className="mb-2 flex items-center gap-2 font-semibold">
-                  <Volume2 className="h-4 w-4" aria-hidden="true" />
+                  <Gauge className="h-4 w-4" aria-hidden="true" />
                   速度 {speed.toFixed(1)}x
                 </span>
                 <input type="range" min="0.5" max="1.25" step="0.05" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} className="w-full accent-[color:var(--green)]" />
+              </label>
+              <label className="rounded-md border border-[color:var(--line)] p-3 text-sm">
+                <span className="mb-2 flex items-center gap-2 font-semibold">
+                  <Volume2 className="h-4 w-4" aria-hidden="true" />
+                  音量 {Math.round(volume * 100)}%
+                </span>
+                <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => setVolume(Number(event.target.value))} className="w-full accent-[color:var(--green)]" />
               </label>
               <label className="rounded-md border border-[color:var(--line)] p-3 text-sm">
                 <span className="mb-2 flex items-center gap-2 font-semibold">
@@ -959,7 +1162,7 @@ export function LearningStudio({
         )}
       </section>
 
-      <aside className="space-y-4">
+      <aside className="min-w-0 space-y-4">
         <div className="rounded-md border border-[color:var(--line)] bg-[color:var(--panel)] p-4">
           <div className="flex items-center gap-2">
             <ListVideo className="h-4 w-4 text-[color:var(--amber)]" aria-hidden="true" />
@@ -989,7 +1192,7 @@ export function LearningStudio({
               type="button"
               onClick={() => setFollowPlayback((value) => !value)}
               className={cn(
-                "h-9 shrink-0 rounded-md border border-[color:var(--line)] px-3 text-xs font-semibold",
+                "h-10 shrink-0 rounded-md border border-[color:var(--line)] px-3 text-xs font-semibold",
                 followPlayback && "ink-action border-[color:var(--ink)]"
               )}
             >
@@ -1034,8 +1237,13 @@ export function LearningStudio({
           </div>
           {lookupWord ? (
             <div className="mt-3 rounded-md border border-[color:var(--line)] p-3">
-              <p className="text-xl font-bold">{lookupWord}</p>
-              <p className="mt-1 text-sm text-[color:var(--muted)]">{lookup?.phonetic ?? "暂无音标"}</p>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-xl font-bold">{lookupWord}</p>
+                  <p className="mt-1 text-sm text-[color:var(--muted)]">{lookup?.phonetic ?? "暂无音标"}</p>
+                </div>
+                <SpeakWordButton word={lookup?.word ?? lookupWord} />
+              </div>
               <p className="mt-3 text-base font-semibold leading-6">{lookupStatus || lookup?.translation || "暂无释义"}</p>
               {lookup?.inContext ? (
                 <p className="mt-3 rounded-md bg-white/70 p-3 text-sm leading-6">

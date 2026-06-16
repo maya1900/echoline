@@ -4,6 +4,8 @@ import { AppShell, Metric, SectionHeader } from "@/components/app-shell";
 import { requireCurrentUser } from "@/lib/auth/require-user";
 import { getProgressData, getSubtitlesForEpisode, listSeries } from "@/lib/data";
 
+export const dynamic = "force-dynamic";
+
 export default async function ProgressPage() {
   await requireCurrentUser("/progress");
 

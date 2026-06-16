@@ -1,3 +1,5 @@
+import { describeAsrRequestError, getAsrRequestTimeoutMs } from "@/lib/asr/http";
+
 type TranscribeInput = {
   file: File;
   prompt?: string;
@@ -39,7 +41,14 @@ async function requestOpenAiTranscription({ file, prompt, apiKey, model }: Trans
     headers: {
       Authorization: `Bearer ${apiKey}`
     },
-    body: formData
+    body: formData,
+    signal: AbortSignal.timeout(getAsrRequestTimeoutMs())
+  }).catch((error: unknown) => {
+    return {
+      ok: false,
+      status: 0,
+      text: async () => describeAsrRequestError(error)
+    } as Response;
   });
 
   if (!response.ok) {

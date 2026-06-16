@@ -1,26 +1,39 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getProfileRole } from "@/lib/auth/config";
+import { getCurrentUser } from "@/lib/auth/bootstrap";
+import { getDb, type AppDb } from "@/lib/db/client";
+import type { CurrentUser } from "@/lib/auth/profile";
 
-export async function requireAdminRequest() {
-  const supabase = await createSupabaseServerClient();
+type RequestAuthResult = { error: NextResponse; db: null; user: null } | { error: null; db: AppDb; user: CurrentUser };
 
-  if (!supabase) {
-    return { error: NextResponse.json({ error: "Supabase is not configured" }, { status: 503 }) };
+export async function requireUserRequest(): Promise<RequestAuthResult> {
+  const db = getDb();
+
+  if (!db) {
+    return { error: NextResponse.json({ error: "Database is not configured" }, { status: 503 }), db: null, user: null };
   }
 
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
-    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }), db: null, user: null };
   }
 
-  const { data: profile, error } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  return { error: null, db, user };
+}
 
-  if (error || profile?.role !== "admin") {
-    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+export async function requireAdminRequest(): Promise<RequestAuthResult> {
+  const auth = await requireUserRequest();
+
+  if (auth.error) {
+    return auth;
   }
 
-  return { supabase, user };
+  const role = await getProfileRole(auth.user.id);
+
+  if (role !== "admin") {
+    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }), db: null, user: null };
+  }
+
+  return auth;
 }
